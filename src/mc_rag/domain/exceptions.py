@@ -1,2 +1,49 @@
-﻿"""Domain-level exception hierarchy."""
+﻿"""Domain-level exception hierarchy.
 
+These exceptions are raised by the domain and application layers and are
+translated into transport-specific responses at the API boundary. Keeping them
+independent of any web framework or third-party library lets the core logic
+stay testable and portable.
+"""
+
+from __future__ import annotations
+
+
+class DomainError(Exception):
+    """Base class for every error raised by the domain layer."""
+
+
+class DocumentError(DomainError):
+    """Base class for document-related failures."""
+
+
+class DocumentNotFoundError(DocumentError):
+    """Raised when a requested document does not exist on disk."""
+
+
+class UnsupportedFormatError(DocumentError):
+    """Raised when a document's format has no registered parser."""
+
+
+class ParsingError(DocumentError):
+    """Raised when a document is present but cannot be parsed."""
+
+
+class EmptyDocumentError(ParsingError):
+    """Raised when a document contains no extractable text."""
+
+
+class CorruptDocumentError(ParsingError):
+    """Raised when a document is malformed or otherwise unreadable."""
+
+
+class EncryptedDocumentError(ParsingError):
+    """Raised when a document is encrypted and cannot be decrypted."""
+
+
+class EmbeddingError(DomainError):
+    """Raised when text embedding generation fails."""
+
+
+class VectorStoreError(DomainError):
+    """Raised when the vector store cannot be accessed or queried."""
