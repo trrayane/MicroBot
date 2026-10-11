@@ -1,0 +1,45 @@
+# --- Environment -----------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+venv/
+.venv/
+env/
+ENV/
+
+# --- Tooling caches --------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- Data / storage --------------------------------------------------------
+storage/chroma/
+storage/*.db
+storage/*.db-journal
+data/raw/**/*
+!data/raw/**/.gitkeep
+
+# --- Logs / editors / OS ---------------------------------------------------
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

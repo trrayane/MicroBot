@@ -1,0 +1,2 @@
+﻿"""DOCX document parser."""
+

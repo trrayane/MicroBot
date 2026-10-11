@@ -1,0 +1,2 @@
+﻿"""Verifies Discord guild membership."""
+

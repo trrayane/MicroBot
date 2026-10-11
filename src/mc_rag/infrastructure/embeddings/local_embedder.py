@@ -1,0 +1,2 @@
+﻿"""Local embedding model client."""
+

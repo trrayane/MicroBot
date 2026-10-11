@@ -1,0 +1,2 @@
+﻿"""PDF document parser."""
+
