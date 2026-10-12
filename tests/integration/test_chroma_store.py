@@ -186,7 +186,7 @@ def test_search_by_text_uses_embedder(store: ChromaStore) -> None:
         ],
         [[1.0, 0.0], [0.0, 1.0]],
     )
-    embedder = LocalEmbedder(model_name="fake-model", model=FixedModel())
+    embedder = LocalEmbedder(model_name="fake-model", model=FixedModel(), dimension=2)
 
     results = store.search_by_text("some query", embedder, visibilities=ALL_VISIBILITIES)
 

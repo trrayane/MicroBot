@@ -7,6 +7,7 @@ traces, provider details, keys) never reach the client.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -59,7 +60,9 @@ def error_response(status: int, code: str, message: str) -> JSONResponse:
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    def make_handler(status: int, code: str, message: str | None):
+    def make_handler(
+        status: int, code: str, message: str | None
+    ) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
         async def handler(_: Request, exc: Exception) -> JSONResponse:
             if status >= 500:
                 logger.warning("%s: %s", code, exc)

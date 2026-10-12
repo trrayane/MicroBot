@@ -78,7 +78,7 @@ def test_batch_size_is_configurable_and_forwarded() -> None:
 
 def test_embed_query_matches_embed_texts() -> None:
     model = FakeModel(dimension=2)
-    embedder = LocalEmbedder(model_name="fake-model", model=model)
+    embedder = LocalEmbedder(model_name="fake-model", model=model, dimension=2)
 
     query_vector = embedder.embed_query("what is the club")
     text_vectors = embedder.embed_texts(["what is the club"])
@@ -119,7 +119,7 @@ def test_defaults_reflect_settings() -> None:
     assert embedder.model_name == settings.embedding_model
     assert embedder.batch_size == settings.embedding_batch_size
     assert embedder.normalize == settings.embedding_normalize
-    assert embedder.device is None
+    assert embedder.device == settings.embedding_device
 
 
 def test_get_embedder_returns_cached_instance() -> None:

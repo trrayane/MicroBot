@@ -125,7 +125,8 @@ class OpenRouterClient:
         if not isinstance(text, str):
             raise LLMUnavailableError("LLM response has no message content.")
 
-        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        usage_value = body.get("usage")
+        usage: dict[str, Any] = usage_value if isinstance(usage_value, dict) else {}
         return LLMResponse(
             text=text,
             prompt_tokens=int(usage.get("prompt_tokens") or 0),

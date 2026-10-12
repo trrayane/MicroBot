@@ -535,6 +535,9 @@ class HashEmbedder:
     def embed_texts(self, texts):
         return [self._embed(text) for text in texts]
 
+    def embed_documents(self, texts):
+        return [self._embed(text) for text in texts]
+
     def embed_query(self, query):
         return self._embed(query)
 
