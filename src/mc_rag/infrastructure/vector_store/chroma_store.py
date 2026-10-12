@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -175,7 +175,7 @@ class ChromaStore:
         visibilities: Sequence[str] | None = None,
         where: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
-        """Embed *text* and search, returning results for convenience."""
+        """Embed *text* (with the query prefix) and search."""
         if not text or not text.strip():
             raise VectorStoreError("Search text must be a non-empty string.")
         query_embedding = embedder.embed_query(text)
@@ -197,7 +197,7 @@ class ChromaStore:
         """Return the metadata of a single chunk for *doc_id*, or ``None``.
 
         Used by the ingestion pipeline to detect unchanged documents from their
-        stored ``content_hash`` without re-embedding them.
+        stored ``content_hash`` and ``embedding_model`` without re-embedding.
         """
         try:
             result = self._resolve_collection().get(
@@ -214,13 +214,43 @@ class ChromaStore:
 
     def delete_document(self, doc_id: str) -> int:
         """Delete every chunk belonging to *doc_id*; returns rows removed."""
+        ids = self._chunk_ids_for(doc_id)
+        if not ids:
+            return 0
         try:
-            result = self._resolve_collection().delete(
-                where=cast("Where", {"doc_id": doc_id})
-            )
+            self._resolve_collection().delete(ids=ids)
         except Exception as exc:  # noqa: BLE001 - normalize third-party errors
             raise VectorStoreError(f"Failed to delete document {doc_id!r}: {exc}") from exc
-        return int(result["deleted"])
+        return len(ids)
+
+    def delete_stale_chunks(self, doc_id: str, keep_ids: Collection[str]) -> int:
+        """Delete chunks of *doc_id* whose id is not in *keep_ids*.
+
+        Called after a successful upsert when a document is re-ingested, so the
+        old version stays searchable until the new one is fully written.
+        """
+        keep = set(keep_ids)
+        stale = [chunk_id for chunk_id in self._chunk_ids_for(doc_id) if chunk_id not in keep]
+        if not stale:
+            return 0
+        try:
+            self._resolve_collection().delete(ids=stale)
+        except Exception as exc:  # noqa: BLE001 - normalize third-party errors
+            raise VectorStoreError(
+                f"Failed to delete stale chunks of {doc_id!r}: {exc}"
+            ) from exc
+        return len(stale)
+
+    def _chunk_ids_for(self, doc_id: str) -> list[str]:
+        """Return the ids of every stored chunk of *doc_id*."""
+        try:
+            result = self._resolve_collection().get(
+                where=cast("Where", {"doc_id": doc_id}),
+                include=[],
+            )
+        except Exception as exc:  # noqa: BLE001 - normalize third-party errors
+            raise VectorStoreError(f"Failed to list chunks of {doc_id!r}: {exc}") from exc
+        return [str(chunk_id) for chunk_id in (result.get("ids") or [])]
 
     def _create_client(self) -> ClientAPI:
         """Build a persistent or ephemeral Chroma client from configuration."""
@@ -302,6 +332,10 @@ def _chunk_to_metadata(chunk: Chunk) -> Metadata:
     content_hash = meta.get("content_hash")
     if content_hash:
         result["content_hash"] = str(content_hash)
+
+    embedding_model = meta.get("embedding_model")
+    if embedding_model:
+        result["embedding_model"] = str(embedding_model)
 
     nested = meta.get("document_metadata")
     if isinstance(nested, dict):

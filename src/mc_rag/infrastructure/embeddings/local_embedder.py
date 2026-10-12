@@ -4,6 +4,10 @@ The heavy model import and loading happen lazily on first use, so importing this
 module (or the package it belongs to) never requires ``torch`` to be present.
 The model itself can be injected at construction time, which keeps unit tests
 fast and deterministic without downloading hundreds of megabytes.
+
+e5-style models need a prefix: ``"query: "`` for questions and ``"passage: "``
+for corpus chunks. Use :meth:`embed_query` and :meth:`embed_documents` so the
+right prefix is always applied.
 """
 
 from __future__ import annotations
@@ -48,12 +52,21 @@ class LocalEmbedder:
         normalize: bool | None = None,
         model: _EmbeddingModel | None = None,
         dimension: int | None = None,
+        query_prefix: str | None = None,
+        doc_prefix: str | None = None,
     ) -> None:
         settings = get_settings()
         self.model_name = model_name or settings.embedding_model
         self.device = device if device is not None else settings.embedding_device
         self.batch_size = batch_size if batch_size is not None else settings.embedding_batch_size
         self.normalize = normalize if normalize is not None else settings.embedding_normalize
+        self.query_prefix = (
+            query_prefix if query_prefix is not None else settings.embedding_query_prefix
+        )
+        self.doc_prefix = doc_prefix if doc_prefix is not None else settings.embedding_doc_prefix
+        self._expected_dimension = (
+            dimension if isinstance(dimension, int) else settings.embedding_dimension
+        )
         self._model = model
         self._dimension = dimension if isinstance(dimension, int) else None
 
@@ -76,11 +89,24 @@ class LocalEmbedder:
             self._dimension = dimension
         return self._dimension
 
-    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed a batch of texts into a ``list`` of float vectors.
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed corpus chunks (adds the document prefix)."""
+        vectors = self.embed_texts([self.doc_prefix + text for text in texts])
+        self._check_dimension(vectors)
+        return vectors
 
-        Batching is delegated to the model (``batch_size`` is honored), so callers
-        may pass arbitrarily large lists without chunking by hand.
+    def embed_query(self, query: str) -> list[float]:
+        """Embed a single user question (adds the query prefix)."""
+        if not query or not query.strip():
+            raise EmbeddingError("Query text must be a non-empty string.")
+        vector = self.embed_texts([self.query_prefix + query])[0]
+        self._check_dimension([vector])
+        return vector
+
+    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed raw texts as-is, with no prefix (low-level building block).
+
+        Prefer :meth:`embed_documents` / :meth:`embed_query` in application code.
         """
         if not texts:
             return []
@@ -105,11 +131,13 @@ class LocalEmbedder:
                 ) from exc
         return rows
 
-    def embed_query(self, query: str) -> list[float]:
-        """Embed a single query string into one float vector."""
-        if not query or not query.strip():
-            raise EmbeddingError("Query text must be a non-empty string.")
-        return self.embed_texts([query])[0]
+    def _check_dimension(self, vectors: list[list[float]]) -> None:
+        """Fail fast when the model output does not match EMBEDDING_DIMENSION."""
+        if vectors and len(vectors[0]) != self._expected_dimension:
+            raise EmbeddingError(
+                f"Model {self.model_name!r} returned {len(vectors[0])} dimensions, "
+                f"but EMBEDDING_DIMENSION={self._expected_dimension}."
+            )
 
     def _load_model(self) -> _EmbeddingModel:
         """Import and instantiate the sentence-transformers model lazily."""

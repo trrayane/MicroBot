@@ -7,13 +7,15 @@ idempotent pipeline:
 
 Idempotency
 -----------
-Every file is fingerprinted with a SHA-256 hash of its raw bytes. The hash is
-persisted on each chunk's metadata, so a re-run can compare the on-disk hash to
-the indexed one via :meth:`ChromaStore.get_document_metadata`. When they match
-(and the visibility is unchanged) the file is skipped entirely, avoiding
-duplicate embeddings and vector-store bloat. When a file *has* changed, all of
-its previous chunks are deleted before the fresh ones are written, so stale
-chunks from a shortened document never linger.
+Every file is fingerprinted with a SHA-256 hash of its raw bytes. The hash and
+the embedding model name are persisted on each chunk's metadata, so a re-run can
+compare them to the indexed values via :meth:`ChromaStore.get_document_metadata`.
+When they match (and the visibility is unchanged) the file is skipped entirely.
+Changing ``EMBEDDING_MODEL`` therefore triggers a re-index automatically.
+
+When a file *has* changed, the fresh chunks are upserted first and only then are
+the obsolete chunks of the previous version deleted. A failure while embedding
+or writing leaves the previous version of the document searchable.
 
 Visibility
 ----------
@@ -330,11 +332,14 @@ class IngestionService:
                 )
 
             _stamp_chunks(chunks, doc_id, content_hash)
-            embeddings = self.embedder.embed_texts([chunk.text for chunk in chunks])
+            # embed_documents adds the "passage: " prefix required by e5 models.
+            embeddings = self.embedder.embed_documents([chunk.text for chunk in chunks])
 
-            if existing is not None:
-                self.store.delete_document(doc_id)
+            # Upsert first, then drop obsolete chunks: a failure above or in the
+            # upsert leaves the previous version of the document searchable.
             self.store.add_chunks(chunks, embeddings)
+            if existing is not None:
+                self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
 
             status = IngestionStatus.UPDATED if existing is not None else IngestionStatus.INDEXED
             logger.info("Ingested %s (%d chunks, %s)", resolved, len(chunks), effective_visibility)
@@ -390,17 +395,24 @@ def _content_hash(path: Path) -> str:
 
 
 def _is_unchanged(existing: dict[str, Any] | None, content_hash: str, visibility: str) -> bool:
-    """Whether an already-indexed document matches the incoming file exactly."""
+    """Whether an already-indexed document matches the incoming file exactly.
+
+    The embedding model is part of the comparison: switching ``EMBEDDING_MODEL``
+    forces a re-index even when the file content did not change.
+    """
     if existing is None:
         return False
     return (
         existing.get("content_hash") == content_hash
         and existing.get("visibility") == visibility
+        and existing.get("embedding_model") == get_settings().embedding_model
     )
 
 
 def _stamp_chunks(chunks: list[Chunk], doc_id: str, content_hash: str) -> None:
-    """Attach the ingestion identity/hash to every chunk before embedding."""
+    """Attach the ingestion identity, hash and embedding model to every chunk."""
+    model = get_settings().embedding_model
     for chunk in chunks:
         chunk.metadata["doc_id"] = doc_id
         chunk.metadata["content_hash"] = content_hash
+        chunk.metadata["embedding_model"] = model

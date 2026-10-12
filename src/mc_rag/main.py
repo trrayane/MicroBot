@@ -1,2 +1,49 @@
 ﻿"""Application entrypoint: builds and runs the FastAPI app."""
 
+from __future__ import annotations
+
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from mc_rag.api.errors import register_error_handlers
+from mc_rag.api.router import api_router
+from mc_rag.config import get_settings
+from mc_rag.infrastructure.embeddings.local_embedder import get_embedder
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Load the embedding model once at startup so the first request is fast."""
+    try:
+        get_embedder().embed_query("warm up")
+        logger.info("Embedding model ready.")
+    except Exception:  # noqa: BLE001 - the app can still start; requests will report it
+        logger.exception("Embedding model warm-up failed.")
+    yield
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    logging.basicConfig(
+        level=settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(api_router)
+    register_error_handlers(app)
+    return app
+
+
+app = create_app()
