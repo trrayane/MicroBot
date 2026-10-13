@@ -47,6 +47,11 @@ src = ["src", "tests", "scripts"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# evaluate.py embeds a labeled corpus of long French/English/Arabic text
+# lines that cannot be wrapped without altering the evaluated content.
+"scripts/evaluate.py" = ["E501"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

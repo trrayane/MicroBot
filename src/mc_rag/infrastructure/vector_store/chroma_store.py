@@ -193,6 +193,47 @@ class ChromaStore:
         except Exception as exc:  # noqa: BLE001 - normalize third-party errors
             raise VectorStoreError(f"Failed to count collection: {exc}") from exc
 
+    def list_documents(self) -> list[dict[str, Any]]:
+        """Return one summary row per indexed document, sorted by title.
+
+        Aggregates the stored chunk metadata by ``doc_id``. Each row has the
+        ``doc_id``, ``title``, ``source``, ``visibility``, ``embedding_model``
+        and ``chunks`` (number of chunks) keys.
+        """
+        try:
+            result = self._resolve_collection().get(include=["metadatas"])
+        except Exception as exc:  # noqa: BLE001 - normalize third-party errors
+            raise VectorStoreError(f"Failed to list documents: {exc}") from exc
+
+        documents: dict[str, dict[str, Any]] = {}
+        for meta in result.get("metadatas") or []:
+            if not meta:
+                continue
+            doc_id = str(meta.get("doc_id") or "unknown-doc")
+            row = documents.get(doc_id)
+            if row is None:
+                source = str(meta.get("source") or "")
+                row = {
+                    "doc_id": doc_id,
+                    "title": str(meta.get("title") or source or doc_id),
+                    "source": source,
+                    "visibility": str(meta.get("visibility") or VISIBILITY_PUBLIC),
+                    "embedding_model": str(meta.get("embedding_model") or ""),
+                    "chunks": 0,
+                }
+                documents[doc_id] = row
+            row["chunks"] += 1
+        return sorted(documents.values(), key=lambda row: str(row["title"]).lower())
+
+    def stats(self) -> dict[str, Any]:
+        """Return high-level counts for the collection."""
+        documents = self.list_documents()
+        return {
+            "collection": self.collection_name,
+            "documents": len(documents),
+            "chunks": sum(int(row["chunks"]) for row in documents),
+        }
+
     def get_document_metadata(self, doc_id: str) -> dict[str, Any] | None:
         """Return the metadata of a single chunk for *doc_id*, or ``None``.
 

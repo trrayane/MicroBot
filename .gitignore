@@ -36,6 +36,8 @@ storage/*.db
 storage/*.db-journal
 data/raw/**/*
 !data/raw/**/.gitkeep
+data/uploads/**/*
+!data/uploads/**/.gitkeep
 
 # --- Logs / editors / OS ---------------------------------------------------
 *.log

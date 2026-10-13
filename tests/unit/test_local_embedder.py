@@ -24,6 +24,7 @@ class FakeModel:
         self.dimension = dimension
         self.batch_sizes: list[int] = []
         self.normalize_flags: list[bool] = []
+        self.seen: list[list[str]] = []
 
     def get_sentence_embedding_dimension(self) -> int | None:
         return self.dimension
@@ -39,6 +40,7 @@ class FakeModel:
     ) -> Any:
         self.batch_sizes.append(batch_size)
         self.normalize_flags.append(normalize_embeddings)
+        self.seen.append(list(sentences))
         vectors = np.zeros((len(sentences), self.dimension), dtype=float)
         for index in range(len(sentences)):
             vectors[index, :] = float(index + 1)
@@ -76,15 +78,28 @@ def test_batch_size_is_configurable_and_forwarded() -> None:
     assert model.batch_sizes == [17]
 
 
-def test_embed_query_matches_embed_texts() -> None:
+def test_embed_query_applies_query_prefix() -> None:
     model = FakeModel(dimension=2)
-    embedder = LocalEmbedder(model_name="fake-model", model=model, dimension=2)
+    embedder = LocalEmbedder(
+        model_name="fake-model", model=model, dimension=2, query_prefix="query: "
+    )
 
     query_vector = embedder.embed_query("what is the club")
-    text_vectors = embedder.embed_texts(["what is the club"])
 
-    assert query_vector == text_vectors[0]
     assert len(query_vector) == 2
+    assert model.seen[-1] == ["query: what is the club"]
+
+
+def test_embed_documents_applies_doc_prefix() -> None:
+    model = FakeModel(dimension=4)
+    embedder = LocalEmbedder(
+        model_name="fake-model", model=model, dimension=4, doc_prefix="passage: "
+    )
+
+    vectors = embedder.embed_documents(["a", "b"])
+
+    assert len(vectors) == 2
+    assert model.seen[-1] == ["passage: a", "passage: b"]
 
 
 @pytest.mark.parametrize("query", ["", "   ", "\n\t"])

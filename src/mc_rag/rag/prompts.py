@@ -6,6 +6,7 @@ numbered so the model can cite them, and cannot close that block themselves.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from mc_rag.infrastructure.vector_store.chroma_store import SearchResult
@@ -14,6 +15,24 @@ from mc_rag.rag.grounding import NO_ANSWER_MARKER
 DEFAULT_MAX_HISTORY_MESSAGES = 4
 _CHAT_ROLES = frozenset({"user", "assistant"})
 _CLOSING_TAG = "</sources>"
+_ARABIC_RE = re.compile(r"[\u0600-\u06ff]")
+_FRENCH_CHARS_RE = re.compile(r"[àâäçéèêëîïôöùûüÿœ]", re.IGNORECASE)
+# French-only markers. English words (e.g. "club") must NOT be listed here or
+# English questions get misdetected and answered in French.
+_FRENCH_WORDS_RE = re.compile(
+    r"\b(quels?|quelle?s?|qu'|les|des|sont|est|pour|avec|comment|pourquoi|bonjour|"
+    r"merci|c'est|nous|vous|je|suis|peux|donner|membres?|droits?)\b",
+    re.IGNORECASE,
+)
+
+
+def question_language(question: str) -> str:
+    """Best-effort language of the question: Arabic, French or English."""
+    if _ARABIC_RE.search(question):
+        return "Arabic"
+    if _FRENCH_CHARS_RE.search(question) or _FRENCH_WORDS_RE.search(question):
+        return "French"
+    return "English"
 
 SYSTEM_PROMPT = f"""You are the official assistant of MC Club.
 
@@ -58,4 +77,9 @@ def _user_content(question: str, hits: Sequence[SearchResult]) -> str:
         body = hit.text.replace(_CLOSING_TAG, "")
         blocks.append(f"[{number}] ({title})\n{body}")
     sources = "\n\n".join(blocks)
-    return f"<sources>\n{sources}\n{_CLOSING_TAG}\n\nQuestion: {question}"
+    language = question_language(question)
+    return (
+        f"<sources>\n{sources}\n{_CLOSING_TAG}\n\n"
+        f"Question: {question}\n\n"
+        f"Respond in {language} (the language of the question above)."
+    )

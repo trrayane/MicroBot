@@ -287,6 +287,83 @@ class IngestionService:
             self._validate_visibility(visibility)
         return self._ingest_file(path, self._resolve_root(root), visibility=visibility, force=force)
 
+    def ingest_parsed_document(
+        self,
+        document: ParsedDocument,
+        *,
+        doc_id: str,
+        visibility: str = VISIBILITY_PUBLIC,
+        force: bool = False,
+    ) -> FileIngestionResult:
+        """Chunk, embed and index an already-parsed document (no file on disk).
+
+        Used for content that does not come from a corpus file, such as a URL
+        fetched on the fly or a block of pasted text. ``doc_id`` is the caller's
+        stable identity for the document; ``content_hash`` is derived from the
+        text so re-ingesting identical content is skipped.
+        """
+        self._validate_visibility(visibility)
+        content_hash = hashlib.sha256(document.text.encode("utf-8")).hexdigest()
+        try:
+            existing = self.store.get_document_metadata(doc_id)
+            if not force and _is_unchanged(existing, content_hash, visibility):
+                return FileIngestionResult(
+                    path=document.source,
+                    status=IngestionStatus.UNCHANGED,
+                    doc_id=doc_id,
+                    visibility=visibility,
+                )
+
+            chunks = chunk_document(document, visibility=visibility)
+            if not chunks:
+                if existing is not None:
+                    self.store.delete_document(doc_id)
+                    return FileIngestionResult(
+                        path=document.source,
+                        status=IngestionStatus.UPDATED,
+                        doc_id=doc_id,
+                        visibility=visibility,
+                    )
+                return FileIngestionResult(
+                    path=document.source,
+                    status=IngestionStatus.UNCHANGED,
+                    doc_id=doc_id,
+                    visibility=visibility,
+                )
+
+            _stamp_chunks(chunks, doc_id, content_hash)
+            embeddings = self.embedder.embed_documents([chunk.text for chunk in chunks])
+            self.store.add_chunks(chunks, embeddings)
+            if existing is not None:
+                self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
+
+            status = IngestionStatus.UPDATED if existing is not None else IngestionStatus.INDEXED
+            logger.info("Ingested %s (%d chunks, %s)", document.source, len(chunks), visibility)
+            return FileIngestionResult(
+                path=document.source,
+                status=status,
+                doc_id=doc_id,
+                visibility=visibility,
+                chunks=len(chunks),
+            )
+        except (DomainError, OSError) as exc:
+            logger.warning("Failed to ingest %s: %s", document.source, exc)
+            return FileIngestionResult(
+                path=document.source, status=IngestionStatus.FAILED, error=str(exc)
+            )
+        except Exception as exc:  # noqa: BLE001 - a batch run must not abort
+            logger.exception("Unexpected error ingesting %s", document.source)
+            return FileIngestionResult(
+                path=document.source,
+                status=IngestionStatus.FAILED,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+
+    @staticmethod
+    def stable_doc_id(key: str) -> str:
+        """Deterministic document id for a non-file source (URL, pasted text)."""
+        return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
     def _ingest_file(
         self,
         path: str | Path,

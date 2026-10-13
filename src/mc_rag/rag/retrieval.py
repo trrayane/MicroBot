@@ -23,6 +23,7 @@ from mc_rag.infrastructure.vector_store.chroma_store import (
     SearchResult,
     allowed_visibilities,
 )
+from mc_rag.rag.prompts import question_language
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +71,33 @@ class Retriever:
         embedder: LocalEmbedder | None = None,
         top_k: int | None = None,
         min_score: float | None = None,
+        min_score_multilingual: float | None = None,
     ) -> None:
         settings = get_settings()
         self._store = store or ChromaStore()
         self._embedder = embedder or get_embedder()
         self.top_k = top_k if top_k is not None else settings.retrieval_top_k
+        # An explicit ``min_score`` overrides every language (useful for tests).
+        self._min_score_override = min_score
         self.min_score = min_score if min_score is not None else settings.retrieval_min_score
+        self.min_score_multilingual = (
+            min_score_multilingual
+            if min_score_multilingual is not None
+            else settings.retrieval_min_score_multilingual
+        )
+
+    def _threshold_for(self, message: str) -> float:
+        """Return the score threshold to apply for *message*'s language.
+
+        English uses ``min_score``; French and Arabic use the lower
+        ``min_score_multilingual`` because cross-lingual cosine scores against
+        English sources are compressed. An explicit override wins everywhere.
+        """
+        if self._min_score_override is not None:
+            return self._min_score_override
+        if question_language(message) == "English":
+            return self.min_score
+        return self.min_score_multilingual
 
     def retrieve(
         self,
@@ -92,14 +114,16 @@ class Retriever:
             top_k=self.top_k,
             visibilities=allowed_visibilities(is_member=is_member),
         )
-        kept = [hit for hit in raw_hits if hit.score >= self.min_score]
+        threshold = self._threshold_for(message)
+        kept = [hit for hit in raw_hits if hit.score >= threshold]
         best = max((hit.score for hit in raw_hits), default=None)
         logger.info(
-            "retrieval query_len=%d member=%s raw=%d kept=%d best_score=%s",
+            "retrieval query_len=%d member=%s raw=%d kept=%d threshold=%.2f best_score=%s",
             len(search_query),
             is_member,
             len(raw_hits),
             len(kept),
+            threshold,
             best,
         )
         return RetrievalResult(search_query=search_query, hits=kept, best_score=best)

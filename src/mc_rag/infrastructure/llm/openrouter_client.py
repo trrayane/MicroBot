@@ -134,8 +134,8 @@ class OpenRouterClient:
         )
 
 
-def get_llm_client() -> OpenRouterClient:
-    """Build the client from application settings."""
+def get_openrouter_client() -> OpenRouterClient:
+    """Build the OpenRouter client from application settings."""
     settings = get_settings()
     return OpenRouterClient(
         api_key=settings.openrouter_api_key,

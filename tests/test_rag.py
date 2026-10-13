@@ -29,7 +29,7 @@ from mc_rag.rag.grounding import (
     refusal_message,
 )
 from mc_rag.rag.pipeline import RagPipeline
-from mc_rag.rag.prompts import SYSTEM_PROMPT, build_messages
+from mc_rag.rag.prompts import SYSTEM_PROMPT, build_messages, question_language
 from mc_rag.rag.retrieval import RetrievalResult, Retriever, build_search_query
 
 # ==========================================================================================
@@ -143,6 +143,18 @@ def test_sources_are_numbered_in_order(make_hit):
 def test_question_comes_after_sources(make_hit):
     content = build_messages("ma question ?", [make_hit()], [])[-1]["content"]
     assert content.index("</sources>") < content.index("ma question ?")
+
+
+def test_language_directive_matches_the_question(make_hit):
+    cases = {
+        "Quels sont les droits des membres ?": "French",
+        "ما هي حقوق الأعضاء؟": "Arabic",
+        "What are the member rights?": "English",
+    }
+    for question, expected in cases.items():
+        content = build_messages(question, [make_hit()], [])[-1]["content"]
+        assert question_language(question) == expected
+        assert f"Respond in {expected} (the language of the question above)." in content
 
 
 def test_chunk_cannot_close_the_sources_block(make_hit):

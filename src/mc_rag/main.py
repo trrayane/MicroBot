@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from mc_rag.api.errors import register_error_handlers
 from mc_rag.api.router import api_router
@@ -43,6 +45,11 @@ def create_app() -> FastAPI:
     )
     app.include_router(api_router)
     register_error_handlers(app)
+
+    # Serve the single-page frontend. Mounted last so /api/v1/* wins.
+    static_dir = Path(__file__).resolve().parent / "static"
+    if static_dir.is_dir():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
     return app
 
 
