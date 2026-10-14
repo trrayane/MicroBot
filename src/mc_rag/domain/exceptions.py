@@ -37,6 +37,18 @@ class CorruptDocumentError(ParsingError):
     """Raised when a document is malformed or otherwise unreadable."""
 
 
+class DocumentTooLargeError(ParsingError):
+    """Raised when a document exceeds a configured structural limit (e.g. rows)."""
+
+
+class UnsafeURLError(ParsingError):
+    """Raised when a URL points at a blocked scheme, host or address."""
+
+
+class LexicalIndexError(DomainError):
+    """Raised when the lexical (BM25) index cannot be accessed or queried."""
+
+
 class EncryptedDocumentError(ParsingError):
     """Raised when a document is encrypted and cannot be decrypted."""
 

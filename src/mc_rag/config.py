@@ -95,6 +95,43 @@ class Settings(BaseSettings):
     # (live) >= 0.761, out-of-scope (labeled) <= 0.755 -> 0.76 separates them.
     retrieval_min_score_multilingual: float = 0.76
 
+    # --- Spreadsheets (Excel / CSV / Google Sheets) ------------------------
+    # One chunk per row; rows are never cut in the middle.
+    sheet_max_rows: int = 50000
+    sheet_max_cell_chars: int = 500
+    # Short rows are grouped together until they reach this many characters.
+    sheet_min_row_chars: int = 200
+    sheet_max_rows_per_chunk: int = 8
+
+    # --- URL fetching (SSRF guard) -----------------------------------------
+    url_fetch_timeout: float = 10.0
+    url_fetch_max_redirects: int = 5
+
+    # --- Hybrid retrieval (BM25 + vector, fused with RRF) ------------------
+    # Off by default: with everything disabled the service behaves exactly as
+    # before this feature existed.
+    hybrid_enabled: bool = False
+    hybrid_rrf_k: int = 60
+    # Candidates fetched per channel before fusing and cutting to top_k.
+    hybrid_candidate_pool: int = 20
+    # "Strong" BM25 hit: -bm25(raw) must reach this value. FTSS5's bm25() is
+    # negative (lower = better) and corpus-dependent: a term present in most
+    # chunks scores ~0, a rare term scores several units.
+    hybrid_bm25_min_score: float = 1.0
+    # True -> answer only when BOTH channels pass; False -> either one passes.
+    hybrid_require_both: bool = False
+    bm25_index_path: str = "./storage/bm25.sqlite3"
+
+    # --- Query rewriting / multi-query (conditional, at most ONE LLM call) --
+    query_rewrite_enabled: bool = False
+    # Below this first-pass cosine score a rewrite is attempted. 0 = use the
+    # language threshold (RETRIEVAL_MIN_SCORE / _MULTILINGUAL).
+    query_rewrite_min_score: float = 0.0
+    query_rewrite_max_chars: int = 300
+    multi_query_enabled: bool = False
+    multi_query_count: int = 2
+    multi_query_max_chars: int = 200
+
     @field_validator(
         "openrouter_api_key",
         "openrouter_site_url",

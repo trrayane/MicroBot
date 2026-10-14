@@ -20,6 +20,12 @@ chunks of at most ``chunk_size`` characters, with an approximate
 ``chunk_overlap`` of trailing context re-used between neighbours (trimmed to a
 word boundary).
 
+Tabular documents
+-----------------
+A :class:`ParsedDocument` produced from a spreadsheet (or a DOCX table) carries
+``tabular`` rows; those go through :func:`_chunk_tabular`, which never cuts a
+row in half and only packs consecutive *short* rows together.
+
 Defaults for ``chunk_size``/``chunk_overlap`` come from
 :mod:`mc_rag.config` (``CHUNK_SIZE`` / ``CHUNK_OVERLAP``).
 """
@@ -33,7 +39,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mc_rag.config import get_settings
-from mc_rag.infrastructure.parsers.base import ParsedDocument, slugify
+from mc_rag.infrastructure.parsers.base import ParsedDocument, TableRow, slugify
 
 _settings = get_settings()
 
@@ -106,6 +112,13 @@ def chunk_document(
         return []
 
     resolved_visibility = _resolve_visibility(document, visibility)
+    if document.tabular:
+        return _chunk_tabular(
+            document,
+            chunk_size=chunk_size,
+            visibility=resolved_visibility,
+        )
+
     pieces = _recursive_split(text, chunk_size, _SEPARATORS)
     spans = _merge_pieces(pieces, chunk_size, chunk_overlap)
     if not spans:
@@ -118,35 +131,146 @@ def chunk_document(
     chunks: list[Chunk] = []
     for index, (chunk_text, start, end) in enumerate(spans):
         heading, level = _section_for(headings, heading_offsets, start)
-        chunk_id = _make_chunk_id(document.source, index, chunk_text)
-        metadata: dict[str, Any] = {
-            "chunk_id": chunk_id,
-            "source": document.source,
-            "format": document.format,
-            "title": document.title,
-            "visibility": resolved_visibility,
-            "section_heading": heading,
-            "section_anchor": slugify(heading) if heading else None,
-            "section_level": level,
-            "chunk_index": index,
-            "chunk_count": chunk_count,
-            "start_char": start,
-            "end_char": end,
-            "char_count": len(chunk_text),
-            "word_count": len(chunk_text.split()),
-            "document_metadata": dict(document.metadata),
-        }
         chunks.append(
-            Chunk(
+            _make_chunk(
+                document,
                 text=chunk_text,
-                chunk_id=chunk_id,
                 index=index,
-                start_char=start,
-                end_char=end,
-                metadata=metadata,
+                start=start,
+                end=end,
+                chunk_count=chunk_count,
+                visibility=resolved_visibility,
+                heading=heading,
+                level=level,
             )
         )
     return chunks
+
+
+def _chunk_tabular(
+    document: ParsedDocument,
+    *,
+    chunk_size: int,
+    visibility: str,
+) -> list[Chunk]:
+    """Chunk a parsed spreadsheet: **one row is never cut**.
+
+    Rows are emitted in order and kept whole, whatever their length (a chunk may
+    therefore exceed ``chunk_size``). Consecutive rows are merged only when all
+    of these hold:
+
+    * every merged row is *short* (``len(row) <= SHEET_MIN_ROW_CHARS``);
+    * the merged text still fits in ``chunk_size``;
+    * at most ``SHEET_MAX_ROWS_PER_CHUNK`` rows are packed together.
+
+    ``chunk_overlap`` does not apply: rows are independent statements and
+    overlapping them would blur the header/value pairing.
+    """
+    rows = document.tabular or []
+    if not rows:
+        return []
+
+    settings = get_settings()
+    short_row = settings.sheet_min_row_chars
+    max_rows = max(1, settings.sheet_max_rows_per_chunk)
+
+    spans: list[tuple[str, int, int, TableRow]] = []
+    start = 0
+    current = ""
+    current_start = 0
+    current_count = 0
+    current_first: TableRow | None = None
+
+    for row in rows:
+        if current and current_first is not None and (
+            current_count >= max_rows
+            or len(row.text) > short_row
+            or len(current) + 1 + len(row.text) > chunk_size
+        ):
+            spans.append((current, current_start, start - 1, current_first))
+            current = ""
+            current_first = None
+            current_count = 0
+        if not current:
+            current_start = start
+            current = row.text
+            current_first = row
+            current_count = 1
+        else:
+            current += "\n" + row.text
+            current_count += 1
+        start += len(row.text) + 1
+
+    if current and current_first is not None:
+        spans.append((current, current_start, start - 1, current_first))
+
+    chunk_count = len(spans)
+    chunks: list[Chunk] = []
+    for index, (chunk_text, row_start, row_end, first_row) in enumerate(spans):
+        chunks.append(
+            _make_chunk(
+                document,
+                text=chunk_text,
+                index=index,
+                start=row_start,
+                end=row_end,
+                chunk_count=chunk_count,
+                visibility=visibility,
+                heading=None,
+                level=None,
+                extra={
+                    "tabular": True,
+                    "row_number": first_row.row_number,
+                    "sheet": first_row.sheet or None,
+                    "container": first_row.container or None,
+                },
+            )
+        )
+    return chunks
+
+
+def _make_chunk(
+    document: ParsedDocument,
+    *,
+    text: str,
+    index: int,
+    start: int,
+    end: int,
+    chunk_count: int,
+    visibility: str,
+    heading: str | None,
+    level: int | None,
+    extra: dict[str, Any] | None = None,
+) -> Chunk:
+    """Assemble one :class:`Chunk` with the standard provenance metadata."""
+    chunk_id = _make_chunk_id(document.source, index, text)
+    metadata: dict[str, Any] = {
+        "chunk_id": chunk_id,
+        "source": document.source,
+        "format": document.format,
+        "title": document.title,
+        "visibility": visibility,
+        "section_heading": heading,
+        "section_anchor": slugify(heading) if heading else None,
+        "section_level": level,
+        "chunk_index": index,
+        "chunk_count": chunk_count,
+        "start_char": start,
+        "end_char": end,
+        "char_count": len(text),
+        "word_count": len(text.split()),
+        "document_metadata": dict(document.metadata),
+    }
+    if extra:
+        metadata.update(extra)
+    return Chunk(
+        text=text,
+        chunk_id=chunk_id,
+        index=index,
+        start_char=start,
+        end_char=end,
+        metadata=metadata,
+    )
 
 
 def _validate_params(chunk_size: int, chunk_overlap: int) -> None:

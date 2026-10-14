@@ -354,7 +354,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
       <div class="details"><p class="name">MicroBot</p><p class="role" id="role">Accès public</p></div>
       <button class="dclose" type="button" aria-label="Fermer le menu" onclick="closeDrawer()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
-    <div class="search"><input type="text" id="sideSearch" placeholder="Rechercher…" aria-label="Rechercher dans l'historique" oninput="drawHist()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+    <div class="search"><input type="text" id="sideSearch" placeholder="Rechercher…" aria-label="Rechercher dans l'historique" autocomplete="off" oninput="drawHist()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
     <nav>
       <button class="item new" type="button" onclick="newChat()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg><p>Nouveau chat</p></button>
       <div class="navgrp" data-adm hidden>
@@ -407,7 +407,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
             <span class="dico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
             <b id="dropT">Choisir un fichier</b>
             <small id="dropS">ou glisse-le ici · PDF, DOCX, Markdown, TXT · 10 Mo max</small>
-            <input id="file" type="file" accept=".pdf,.docx,.md,.markdown,.txt" onchange="onFile()">
+            <input id="file" type="file" accept=".pdf,.docx,.md,.markdown,.txt,.xlsx,.csv" onchange="onFile()">
           </label>
         </div>
         <div id="srcUrl" class="srcp" role="tabpanel" hidden>
@@ -583,7 +583,7 @@ async function ask(q) {
   const pt = 300 + q.length * 2 + (ok ? top.reduce((a, r) => a + r.d.text.length, 0) / 3 | 0 : 0);
   $(id).innerHTML = `<div class="bub ${ok ? '' : 'no'}" ${L === 'ar' ? 'dir=rtl' : ''}>${esc(ok ? MC.best(top[0].d, q) : MC.NO[L])}</div>` +
     top.map(r => `<div class="src"><b>${esc(r.d.title)} <span class="bd ${r.d.vis === 'public' ? 's' : 'l'}">${r.d.vis}</span></b><p>${esc(MC.best(r.d, q).slice(0, 110))}…</p>${srcLink(r.d)}</div>`).join('') +
-    `<div class="row"><span class="bd ${ok ? 'ok' : 'wa'}">${ok ? 'Réponse sourcée' : 'Non sourcé'}</span><span>1 appel LLM · ${pt} tokens · ${(lat / 1000).toFixed(1)} s</span><button class="btn t sm" onclick="rate('up',this)">Utile</button><button class="btn t sm" onclick="rate('down',this)">Pas utile</button></div>`;
+    `<div class="row"><span class="bd ${ok ? 'ok' : 'wa'}">${ok ? 'Réponse sourcée' : 'Non sourcé'}</span><button class="btn t sm" onclick="rate('up',this)">Utile</button><button class="btn t sm" onclick="rate('down',this)">Pas utile</button></div>`;
   convo.push({ r: 'a', t: ok ? MC.best(top[0].d, q) : '' });
   saveCur();
   $('sendBtn').disabled = false; $('msgs').scrollTop = 1e9;
@@ -726,7 +726,7 @@ async function addDoc() {
   $('urlErr').hidden = true;
   if (srcMode === 'file') {
     const f = $('file').files[0]; if (!f) return toast('Choisis un fichier à ajouter.');
-    if (!/\.(pdf|docx|md|markdown|txt)$/i.test(f.name)) return toast('Format non pris en charge (PDF, DOCX, MD ou TXT).');
+    if (!/\.(pdf|docx|md|markdown|txt|xlsx|csv)$/i.test(f.name)) return toast('Format non pris en charge (PDF, DOCX, MD, TXT, XLSX ou CSV).');
     if (f.size > 10 * 1048576) return toast('Fichier trop lourd (10 Mo maximum).');
     title = title || f.name.replace(/\.[^.]+$/, '');
     const dup = docs.find(d => d.title === title); if (dup) return toast('Déjà ingéré : aucun doublon créé (' + dup.id + ').');
@@ -928,7 +928,7 @@ ask = async function (q) {
     $(id).innerHTML = '<div class="bub ' + (ok ? '' : 'no') + '"' + (L === 'ar' ? ' dir=rtl' : '') + '></div>';
     typeAnswer($(id).querySelector('.bub'), body.answer || MC.NO[L], sources.length, function () {
       $(id).insertAdjacentHTML('beforeend', sources.map(s => { const v = visOf(s.doc_id); return '<div class="src"><b>' + esc(s.title) + (v ? ' <span class="bd ' + (v === 'public' ? 's' : 'l') + '">' + esc(v) + '</span>' : '') + '</b><p>' + esc((s.snippet || '').slice(0, 110)) + '…</p></div>'; }).join('') +
-        '<div class="row"><span class="bd ' + (ok ? 'ok' : 'wa') + '">' + (ok ? 'Réponse sourcée' : 'Non sourcé') + '</span><span>' + (u.llm_calls || 0) + ' appel(s) LLM · ' + toks + ' tokens · ' + (lat / 1000).toFixed(1) + ' s</span><button class="btn t sm" onclick="rate(\'up\',this)">Utile</button><button class="btn t sm" onclick="rate(\'down\',this)">Pas utile</button></div>');
+        '<div class="row"><span class="bd ' + (ok ? 'ok' : 'wa') + '">' + (ok ? 'Réponse sourcée' : 'Non sourcé') + '</span><button class="btn t sm" onclick="rate(\'up\',this)">Utile</button><button class="btn t sm" onclick="rate(\'down\',this)">Pas utile</button></div>');
       convo.push({ r: 'a', t: body.answer || '' });
       saveCur(); $('sendBtn').disabled = false; $('msgs').scrollTop = 1e9;
     });
@@ -975,7 +975,7 @@ addDoc = async function () {
   $('urlErr').hidden = true;
   if (srcMode === 'file') {
     const f = $('file').files[0]; if (!f) return toast('Choisis un fichier à ajouter.');
-    if (!/\.(pdf|docx|md|markdown|txt)$/i.test(f.name)) return toast('Format non pris en charge (PDF, DOCX, MD ou TXT).');
+    if (!/\.(pdf|docx|md|markdown|txt|xlsx|csv)$/i.test(f.name)) return toast('Format non pris en charge (PDF, DOCX, MD, TXT, XLSX ou CSV).');
     if (f.size > 10 * 1048576) return toast('Fichier trop lourd (10 Mo maximum).');
     fd.append('mode', 'file'); fd.append('file', f); if (title) fd.append('title', title);
   } else if (srcMode === 'url') {

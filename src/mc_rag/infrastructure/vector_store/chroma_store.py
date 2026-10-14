@@ -193,6 +193,54 @@ class ChromaStore:
         except Exception as exc:  # noqa: BLE001 - normalize third-party errors
             raise VectorStoreError(f"Failed to count collection: {exc}") from exc
 
+    def get_all_chunks(self, *, batch_size: int = 500) -> list[SearchResult]:
+        """Read every stored chunk in batches (migration/rebuild helper).
+
+        Used to rebuild a secondary index (e.g. the BM25 index) from the vector
+        store, which stays the source of truth. Scores are meaningless here:
+        ``distance`` and ``score`` stay at ``0.0``.
+
+        Args:
+            batch_size: Page size of the underlying ``get`` calls.
+
+        Returns:
+            Every chunk, ordered by collection row order.
+        """
+        if batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer.")
+
+        collection = self._resolve_collection()
+        results: list[SearchResult] = []
+        offset = 0
+        try:
+            while True:
+                raw = collection.get(
+                    include=["documents", "metadatas"], limit=batch_size, offset=offset
+                )
+                ids = [str(chunk_id) for chunk_id in (raw.get("ids") or [])]
+                if not ids:
+                    break
+                documents = raw.get("documents") or []
+                metadatas = raw.get("metadatas") or []
+                for index, chunk_id in enumerate(ids):
+                    document = documents[index] if index < len(documents) else None
+                    row_meta = metadatas[index] if index < len(metadatas) else None
+                    results.append(
+                        SearchResult(
+                            chunk_id=chunk_id,
+                            text=str(document) if document is not None else "",
+                            metadata=dict(row_meta) if row_meta else {},
+                            distance=0.0,
+                            score=0.0,
+                        )
+                    )
+                if len(ids) < batch_size:
+                    break
+                offset += len(ids)
+        except Exception as exc:  # noqa: BLE001 - normalize third-party errors
+            raise VectorStoreError(f"Failed to read stored chunks: {exc}") from exc
+        return results
+
     def list_documents(self) -> list[dict[str, Any]]:
         """Return one summary row per indexed document, sorted by title.
 

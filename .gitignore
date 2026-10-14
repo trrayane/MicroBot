@@ -31,9 +31,7 @@ htmlcov/
 .nox/
 
 # --- Data / storage --------------------------------------------------------
-storage/chroma/
-storage/*.db
-storage/*.db-journal
+storage/
 data/raw/**/*
 !data/raw/**/.gitkeep
 data/uploads/**/*

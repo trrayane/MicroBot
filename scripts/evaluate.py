@@ -1,12 +1,20 @@
 """CLI script: retrieval-only evaluation harness for the RAG pipeline.
 
-This harness measures the **retrieval** stage (vector search) of the pipeline and
-makes **zero LLM calls**, so it is free and safe to run hundreds of times.
+This harness measures the **retrieval** stage of the pipeline and makes
+**zero LLM calls**, so it is free and safe to run hundreds of times.
+
+Two modes, mirroring the two production configurations:
+
+* ``--legacy`` (default) - vector search only, exactly the historical
+  behaviour of this script;
+* ``--hybrid`` - Chroma **and** a SQLite FTS5 (BM25) index, candidates fused
+  with RRF and gated by the accept rule of :mod:`mc_rag.rag.hybrid`.
 
 What it does
 ------------
-1. Builds an isolated, in-memory Chroma index from an embedded labeled corpus
-   (French / English / Arabic documents, both ``public`` and ``members``).
+1. Builds an isolated, in-memory Chroma index (plus a temporary BM25 index in
+   hybrid mode) from an embedded labeled corpus (French / English / Arabic
+   documents, both ``public`` and ``members``).
 2. Runs a question set split into a **calibration** batch (used to tune the
    score threshold) and a **test** batch (never used for tuning).
 3. Computes document-level metrics, where the label is the *expected source
@@ -17,13 +25,15 @@ What it does
    - ``nDCG@5`` (binary relevance; supports multiple relevant documents)
    - refusal accuracy: out-of-scope questions must fall below the threshold
    - public/members tightness: a non-member search must never return a
-     ``members`` chunk.
+     ``members`` chunk (checked in **both** indexes).
 
 Usage
 -----
 ::
 
-    python scripts/evaluate.py                     # calibrate + full report
+    python scripts/evaluate.py                     # legacy + full report
+    python scripts/evaluate.py --hybrid            # BM25 + vectors fused (RRF)
+    python scripts/evaluate.py --hybrid --bm25-min 2.0
     python scripts/evaluate.py --min-score 0.83    # skip calibration
     python scripts/evaluate.py --split test        # report the test batch only
     python scripts/evaluate.py --json results.json # also dump raw results
@@ -39,6 +49,8 @@ import json
 import math
 import os
 import sys
+import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -55,14 +67,16 @@ import chromadb  # noqa: E402
 
 from mc_rag.config import get_settings  # noqa: E402
 from mc_rag.infrastructure.embeddings.local_embedder import get_embedder  # noqa: E402
+from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index, IndexEntry  # noqa: E402
 from mc_rag.infrastructure.parsers.base import ParsedDocument  # noqa: E402
 from mc_rag.infrastructure.vector_store.chroma_store import (  # noqa: E402
     VISIBILITY_MEMBERS,
     VISIBILITY_PUBLIC,
     ChromaStore,
-    allowed_visibilities,
+    SearchResult,
 )
 from mc_rag.rag.chunking import chunk_document  # noqa: E402
+from mc_rag.rag.retrieval import Retriever  # noqa: E402
 
 K_VALUES = (1, 3, 5)
 NDCG_K = 5
@@ -537,7 +551,63 @@ def build_store(corpus: tuple[Doc, ...]) -> tuple[ChromaStore, int]:
     return store, chunks_total
 
 
-def _ranked_doc_ids(hits: list, limit: int) -> list[str]:
+def build_retriever(
+    store: ChromaStore,
+    *,
+    hybrid: bool,
+    top_k: int | None = None,
+    min_score: float | None = None,
+    bm25_min: float | None = None,
+    pool: int | None = None,
+    require_both: bool | None = None,
+) -> Retriever:
+    """A retriever over the eval store (temporary BM25 index when hybrid)."""
+    lexical = None
+    if hybrid:
+        lexical = BM25Index(Path(tempfile.mkdtemp(prefix="mc_eval_bm25_")) / "bm25.sqlite3")
+    return Retriever(
+        store=store,
+        embedder=get_embedder(),
+        lexical=lexical,
+        top_k=top_k,
+        min_score=min_score if min_score is not None else 0.0,  # harness gates itself
+        hybrid_enabled=hybrid,
+        hybrid_bm25_min_score=bm25_min,
+        hybrid_candidate_pool=pool,
+        hybrid_require_both=require_both,
+    )
+
+
+def index_lexical(corpus: tuple[Doc, ...], retriever: Retriever) -> int:
+    """Fill the BM25 index of *retriever* with the same chunks as Chroma.
+
+    Returns:
+        The number of lexical entries indexed (``0`` when hybrid is off).
+    """
+    if not retriever.hybrid_enabled:
+        return 0
+    entries: list[IndexEntry] = []
+    for doc in corpus:
+        parsed = ParsedDocument(
+            text=doc.text,
+            source=doc.source,
+            format="md",
+            title=doc.title,
+            metadata={"visibility": doc.visibility, "doc_id": doc.doc_id},
+        )
+        for chunk in chunk_document(parsed, visibility=doc.visibility):
+            entries.append(
+                IndexEntry(
+                    chunk_id=chunk.chunk_id,
+                    text=chunk.text,
+                    metadata={**chunk.metadata, "doc_id": doc.doc_id},
+                )
+            )
+    retriever.lexical.upsert(entries)
+    return len(entries)
+
+
+def _ranked_doc_ids(hits: Sequence[SearchResult], limit: int) -> list[str]:
     """Ordered unique ``doc_id`` values from ranked chunk hits."""
     ordered: list[str] = []
     for hit in hits:
@@ -547,19 +617,12 @@ def _ranked_doc_ids(hits: list, limit: int) -> list[str]:
     return ordered[:limit]
 
 
-def run_questions(
-    store: ChromaStore, questions: tuple[Question, ...], candidates: int
-) -> list[QuestionResult]:
+def run_questions(retriever: Retriever, questions: tuple[Question, ...]) -> list[QuestionResult]:
     """Retrieve for every question, plus a non-member probe to detect leakage."""
-    embedder = get_embedder()
     results: list[QuestionResult] = []
     for question in questions:
-        hits = store.search_by_text(
-            question.text,
-            embedder,
-            top_k=candidates,
-            visibilities=allowed_visibilities(is_member=question.is_member),
-        )
+        retrieval = retriever.retrieve(question.text, is_member=question.is_member)
+        hits = retrieval.hits
         leaked = any(str(h.metadata.get("visibility")) == VISIBILITY_MEMBERS for h in hits)
         best = max((h.score for h in hits), default=0.0)
         results.append(
@@ -573,15 +636,14 @@ def run_questions(
     return results
 
 
-def leak_probe(store: ChromaStore, questions: tuple[Question, ...], candidates: int) -> int:
+def leak_probe(retriever: Retriever, questions: tuple[Question, ...]) -> int:
     """Count non-member searches that return a ``members`` chunk (must stay 0)."""
-    embedder = get_embedder()
     leaks = 0
     for question in questions:
-        hits = store.search_by_text(
-            question.text, embedder, top_k=candidates, visibilities=("public",)
-        )
-        if any(str(h.metadata.get("visibility")) == VISIBILITY_MEMBERS for h in hits):
+        retrieval = retriever.retrieve(question.text, is_member=False)
+        if any(
+            str(h.metadata.get("visibility")) == VISIBILITY_MEMBERS for h in retrieval.hits
+        ):
             leaks += 1
     return leaks
 
@@ -652,7 +714,7 @@ def print_failures(results: list[QuestionResult], threshold: float) -> None:
     print()
 
 
-def to_json(results: list[QuestionResult], threshold: float) -> dict:
+def to_json(results: list[QuestionResult], threshold: float) -> dict[str, object]:
     return {
         "threshold": threshold,
         "questions": [
@@ -686,6 +748,43 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--json", type=Path, default=None, help="Also write raw per-question results here."
     )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Vector-only search (historical behaviour); the default without --hybrid.",
+    )
+    parser.add_argument(
+        "--hybrid",
+        action="store_true",
+        help="Fuse Chroma and BM25 candidates with RRF (adds a temporary FTS5 index).",
+    )
+    parser.add_argument(
+        "--bm25-min",
+        type=float,
+        default=None,
+        metavar="SCORE",
+        help="Accept a lexical hit when -bm25 >= SCORE (default: settings).",
+    )
+    parser.add_argument(
+        "--pool",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Candidates fetched per index before fusion (default: settings).",
+    )
+    parser.add_argument(
+        "--require-both",
+        action="store_true",
+        help="A candidate must pass both the vector AND the lexical gate.",
+    )
+    parser.add_argument(
+        "--rewrite-min-score",
+        type=float,
+        default=None,
+        metavar="SCORE",
+        help="Report how many questions would trigger a rewrite below SCORE "
+        "(0.0 = language threshold); no LLM call is made.",
+    )
     return parser
 
 
@@ -697,21 +796,34 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     settings = get_settings()
+    hybrid = bool(args.hybrid) and not args.legacy
 
     store, chunks_total = build_store(CORPUS)
+    retriever = build_retriever(
+        store,
+        hybrid=hybrid,
+        top_k=args.candidates,
+        bm25_min=args.bm25_min,
+        pool=args.pool,
+        require_both=args.require_both or None,
+    )
+    lexical_entries = index_lexical(CORPUS, retriever)
     members_docs = sum(1 for doc in CORPUS if doc.visibility == VISIBILITY_MEMBERS)
     print()
     print("Corpus d'évaluation")
     print("-------------------")
     print(f"  Modèle d'embedding : {settings.embedding_model}")
+    print(f"  Mode               : {'hybrid (BM25 + RRF)' if hybrid else 'legacy (vecteurs)'}")
     print(
         f"  Documents          : {len(CORPUS)} ({members_docs} membres, {len(CORPUS) - members_docs} publics)"
     )
     print(f"  Chunks indexés     : {chunks_total}")
+    if hybrid:
+        print(f"  Entrées lexicales  : {lexical_entries}")
     print()
 
-    calib_results = run_questions(store, CALIBRATION_SET, args.candidates)
-    test_results = run_questions(store, TEST_SET, args.candidates)
+    calib_results = run_questions(retriever, CALIBRATION_SET)
+    test_results = run_questions(retriever, TEST_SET)
 
     if args.min_score is not None:
         threshold = args.min_score
@@ -728,15 +840,30 @@ def main(argv: list[str] | None = None) -> int:
         print_refusal("Refus — test", compute_refusal(test_results, threshold))
         print_failures(test_results, threshold)
 
-    leaks = leak_probe(store, CALIBRATION_SET + TEST_SET, args.candidates)
+    leaks = leak_probe(retriever, CALIBRATION_SET + TEST_SET)
     print("Étanchéité public / membres")
     print("---------------------------")
     print(f"  Fuites non-membre  : {leaks}  {'OK' if leaks == 0 else 'ÉCHEC'}")
     print()
 
+    if args.rewrite_min_score is not None:
+        gate = args.rewrite_min_score or threshold
+        weak = sum(
+            1
+            for result in calib_results + test_results
+            if result.question.relevant and result.best_score < gate
+        )
+        total = sum(1 for result in calib_results + test_results if result.question.relevant)
+        print("Réécriture de requête (simulation, 0 appel LLM)")
+        print("----------------------------------------------")
+        print(f"  Seuil simulé       : {gate:.2f}")
+        print(f"  Questions faibles  : {weak} / {total} déclencheraient la réécriture")
+        print()
+
     if args.json is not None:
         payload = {
             "threshold": threshold,
+            "mode": "hybrid" if hybrid else "legacy",
             "calibration": to_json(calib_results, threshold),
             "test": to_json(test_results, threshold),
             "member_leaks": leaks,

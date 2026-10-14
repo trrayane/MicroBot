@@ -85,7 +85,7 @@ class RagPipeline:
         result = ChatResult(
             answer=text,
             grounded=grounded,
-            llm_calls=1,
+            llm_calls=1 + retrieval.llm_calls,
             prompt_tokens=response.prompt_tokens,
             completion_tokens=response.completion_tokens,
         )

@@ -14,6 +14,7 @@ from mc_rag.application.conversation_service import ConversationService
 from mc_rag.application.ingestion_service import IngestionService
 from mc_rag.config import get_settings
 from mc_rag.domain.exceptions import AuthenticationError
+from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index
 from mc_rag.infrastructure.llm.client import get_llm_client
 from mc_rag.infrastructure.persistence.conversation_repository import ConversationRepository
 from mc_rag.infrastructure.persistence.feedback_repository import FeedbackRepository
@@ -80,9 +81,15 @@ def get_store() -> ChromaStore:
 
 
 @lru_cache(maxsize=1)
+def get_lexical_index() -> BM25Index:
+    """Process-wide BM25 index shared by retrieval, ingestion and deletion."""
+    return BM25Index()
+
+
+@lru_cache(maxsize=1)
 def get_chat_service() -> ChatService:
     settings = get_settings()
-    retriever = Retriever(store=get_store())
+    retriever = Retriever(store=get_store(), lexical=get_lexical_index())
     pipeline = RagPipeline(retriever=retriever, llm=get_llm_client())
     conversations = ConversationService(ConversationRepository(settings.conversation_db_path))
     return ChatService(pipeline=pipeline, conversations=conversations)
@@ -91,7 +98,7 @@ def get_chat_service() -> ChatService:
 @lru_cache(maxsize=1)
 def get_ingestion_service() -> IngestionService:
     """Ingestion service writing into the same collection the chat reads."""
-    return IngestionService(store=get_store())
+    return IngestionService(store=get_store(), lexical=get_lexical_index())
 
 
 @lru_cache(maxsize=1)

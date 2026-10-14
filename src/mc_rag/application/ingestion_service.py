@@ -40,12 +40,15 @@ from typing import Any
 from mc_rag.config import get_settings
 from mc_rag.domain.exceptions import DomainError, UnsupportedFormatError
 from mc_rag.infrastructure.embeddings.local_embedder import LocalEmbedder, get_embedder
+from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index, IndexEntry
 from mc_rag.infrastructure.parsers import (
     ParsedDocument,
+    parse_csv,
     parse_docx,
     parse_markdown,
     parse_pdf,
     parse_web,
+    parse_xlsx,
     resolve_document_path,
 )
 from mc_rag.infrastructure.vector_store.chroma_store import (
@@ -74,6 +77,8 @@ _EXTENSION_PARSERS: dict[str, Parser] = {
     ".docx": parse_docx,
     ".html": _parse_web_file,
     ".htm": _parse_web_file,
+    ".xlsx": parse_xlsx,
+    ".csv": parse_csv,
 }
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_EXTENSION_PARSERS)
@@ -176,12 +181,14 @@ class IngestionService:
         *,
         store: ChromaStore | None = None,
         embedder: LocalEmbedder | None = None,
+        lexical: BM25Index | None = None,
         raw_data_dir: str | Path | None = None,
         default_visibility: str = VISIBILITY_PUBLIC,
         parser: Parser = parse_document,
     ) -> None:
         self._store = store
         self._embedder = embedder
+        self._lexical = lexical
         settings = get_settings()
         self.raw_data_dir = Path(raw_data_dir) if raw_data_dir is not None else Path(
             settings.raw_data_dir
@@ -202,6 +209,38 @@ class IngestionService:
         if self._embedder is None:
             self._embedder = get_embedder()
         return self._embedder
+
+    @property
+    def lexical(self) -> BM25Index:
+        """The BM25 index kept in sync with the vector store.
+
+        Hybrid retrieval reads it, so ingestion writes to it as well; a failure
+        there is logged but never fails the ingestion (the vector store is the
+        source of truth and ``scripts/rebuild_index.py`` can repair the gap).
+        """
+        if self._lexical is None:
+            self._lexical = BM25Index()
+        return self._lexical
+
+    def _sync_lexical(self, chunks: list[Chunk]) -> None:
+        """Upsert freshly written chunks into the BM25 index."""
+        if not chunks:
+            return
+        entries = [
+            IndexEntry(chunk_id=chunk.chunk_id, text=chunk.text, metadata=dict(chunk.metadata))
+            for chunk in chunks
+        ]
+        try:
+            self.lexical.upsert(entries)
+        except (DomainError, OSError) as exc:
+            logger.warning("Lexical index not updated for %d chunks: %s", len(chunks), exc)
+
+    def _drop_lexical(self, doc_id: str) -> None:
+        """Remove a deleted document from the BM25 index."""
+        try:
+            self.lexical.delete_document(doc_id)
+        except (DomainError, OSError) as exc:
+            logger.warning("Lexical index not cleaned for %s: %s", doc_id, exc)
 
     def discover_files(self, root: str | Path | None = None) -> list[Path]:
         """Return supported files under *root*, sorted for deterministic runs."""
@@ -318,6 +357,7 @@ class IngestionService:
             if not chunks:
                 if existing is not None:
                     self.store.delete_document(doc_id)
+                    self._drop_lexical(doc_id)
                     return FileIngestionResult(
                         path=document.source,
                         status=IngestionStatus.UPDATED,
@@ -336,6 +376,7 @@ class IngestionService:
             self.store.add_chunks(chunks, embeddings)
             if existing is not None:
                 self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
+            self._sync_lexical(chunks)
 
             status = IngestionStatus.UPDATED if existing is not None else IngestionStatus.INDEXED
             logger.info("Ingested %s (%d chunks, %s)", document.source, len(chunks), visibility)
@@ -395,6 +436,7 @@ class IngestionService:
             if not chunks:
                 if existing is not None:
                     self.store.delete_document(doc_id)
+                    self._drop_lexical(doc_id)
                     return FileIngestionResult(
                         path=str(resolved),
                         status=IngestionStatus.UPDATED,
@@ -417,6 +459,7 @@ class IngestionService:
             self.store.add_chunks(chunks, embeddings)
             if existing is not None:
                 self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
+            self._sync_lexical(chunks)
 
             status = IngestionStatus.UPDATED if existing is not None else IngestionStatus.INDEXED
             logger.info("Ingested %s (%d chunks, %s)", resolved, len(chunks), effective_visibility)

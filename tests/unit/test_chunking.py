@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mc_rag.config import get_settings
-from mc_rag.infrastructure.parsers.base import ParsedDocument, Section
+from mc_rag.infrastructure.parsers.base import ParsedDocument, Section, TableRow
 from mc_rag.rag.chunking import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
@@ -183,3 +183,105 @@ def test_invalid_parameters_raise(chunk_size: int, chunk_overlap: int) -> None:
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Tabular documents (spreadsheets): rows are never cut
+# --------------------------------------------------------------------------- #
+
+
+def make_tabular(rows: list[str], *, source: str = "bureau.xlsx") -> ParsedDocument:
+    """Build a spreadsheet-shaped document out of rendered row texts."""
+    table_rows = [
+        TableRow(text=text, container="Bureau", row_number=index + 1, sheet="Bureau")
+        for index, text in enumerate(rows)
+    ]
+    return ParsedDocument(
+        text="\n".join(rows),
+        source=source,
+        format="xlsx",
+        title="Bureau",
+        tabular=table_rows,
+    )
+
+
+def short_rows(count: int) -> list[str]:
+    """Rendered rows well under ``SHEET_MIN_ROW_CHARS``."""
+    return [
+        f"Fichier : bureau.xlsx | Feuille : Bureau | Nom : Membre{i} | Rôle : Trésorier"
+        for i in range(count)
+    ]
+
+
+def test_tabular_short_rows_are_grouped_within_budget() -> None:
+    rows = short_rows(10)
+    doc = make_tabular(rows)
+    chunks = chunk_document(doc, chunk_size=2000, chunk_overlap=50)
+
+    settings = get_settings()
+    assert settings.sheet_max_rows_per_chunk == 8
+    assert len(chunks) == 2
+    assert chunks[0].text.splitlines() == rows[:8]
+    assert chunks[1].text.splitlines() == rows[8:]
+    assert all(chunk.char_count <= 2000 for chunk in chunks)
+    assert "\n".join(chunk.text for chunk in chunks) == doc.text
+
+
+def test_tabular_never_exceeds_rows_per_chunk() -> None:
+    doc = make_tabular(short_rows(20))
+    chunks = chunk_document(doc, chunk_size=10_000, chunk_overlap=0)
+    settings = get_settings()
+    assert len(chunks) == 3  # 8 + 8 + 4
+    assert all(
+        len(chunk.text.splitlines()) <= settings.sheet_max_rows_per_chunk
+        for chunk in chunks
+    )
+
+
+def test_tabular_long_row_is_kept_whole_in_its_own_chunk() -> None:
+    long_row = "Fichier : bureau.xlsx | Feuille : Bureau | Commentaire : " + "x" * 600
+    rows = [short_rows(1)[0], long_row, short_rows(1)[0].replace("Membre0", "Membre2")]
+    doc = make_tabular(rows)
+    chunks = chunk_document(doc, chunk_size=300, chunk_overlap=20)
+
+    holders = [chunk for chunk in chunks if long_row in chunk.text]
+    assert len(holders) == 1
+    assert holders[0].text == long_row
+    assert holders[0].char_count > 300  # never split, even above chunk_size
+
+
+def test_tabular_rows_are_never_split_across_chunks() -> None:
+    rows = [
+        short_rows(1)[0],
+        "Fichier : bureau.xlsx | Feuille : Bureau | Note : " + "y" * 400,
+        short_rows(1)[0].replace("Membre0", "Membre2"),
+    ]
+    doc = make_tabular(rows)
+    chunks = chunk_document(doc, chunk_size=250, chunk_overlap=10)
+
+    for row in rows:
+        holders = [chunk for chunk in chunks if row in chunk.text]
+        assert len(holders) == 1
+        assert row in holders[0].text.splitlines()
+    assert "\n".join(chunk.text for chunk in chunks) == doc.text
+
+
+def test_tabular_chunks_carry_row_provenance() -> None:
+    doc = make_tabular(short_rows(3))
+    (chunk, *rest) = chunk_document(doc, chunk_size=10_000, chunk_overlap=0)
+    assert rest == []
+    assert chunk.metadata["tabular"] is True
+    assert chunk.metadata["row_number"] == 1
+    assert chunk.metadata["sheet"] == "Bureau"
+    assert chunk.metadata["container"] == "Bureau"
+    assert chunk.metadata["visibility"] == "public"
+    assert chunk.metadata["format"] == "xlsx"
+    assert chunk.metadata["chunk_index"] == 0
+    assert chunk.metadata["chunk_count"] == 1
+
+
+def test_tabular_documents_without_rows_fall_back_to_text() -> None:
+    doc = ParsedDocument(text="not really tabular", source="x.md", format="markdown")
+    assert doc.tabular is None
+    (chunk,) = chunk_document(doc)
+    assert chunk.text == "not really tabular"

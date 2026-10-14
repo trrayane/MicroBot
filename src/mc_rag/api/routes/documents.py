@@ -3,21 +3,28 @@
 Adding a document accepts three modes, all sent as ``multipart/form-data`` so a
 file upload and the text-based modes share one endpoint:
 
-* ``mode=file`` -> ``file`` (PDF, DOCX, Markdown or TXT), stored under
+* ``mode=file`` -> ``file`` (PDF, DOCX, Markdown, TXT, XLSX or CSV), stored under
   ``UPLOAD_DIR`` then ingested;
-* ``mode=url``  -> ``url`` fetched and cleaned server side;
+* ``mode=url``  -> ``url`` fetched and cleaned server side (Google Sheets links
+    are exported as a spreadsheet, everything else goes through the SSRF guard);
 * ``mode=text`` -> ``text`` pasted directly.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from mc_rag.api.dependencies import get_ingestion_service, get_store, require_admin
+from mc_rag.api.dependencies import (
+    get_ingestion_service,
+    get_lexical_index,
+    get_store,
+    require_admin,
+)
 from mc_rag.api.schemas import (
     AddDocumentResponse,
     DeleteDocumentResponse,
@@ -27,17 +34,25 @@ from mc_rag.api.schemas import (
 from mc_rag.application.ingestion_service import FileIngestionResult, IngestionService
 from mc_rag.config import get_settings
 from mc_rag.domain.exceptions import DomainError
-from mc_rag.infrastructure.parsers import ParsedDocument, parse_web
+from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index
+from mc_rag.infrastructure.parsers import (
+    ParsedDocument,
+    is_google_sheets_url,
+    parse_google_sheets,
+    parse_web,
+)
 from mc_rag.infrastructure.vector_store.chroma_store import (
     ALL_VISIBILITIES,
     VISIBILITY_PUBLIC,
     ChromaStore,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(require_admin)])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-_FILE_SUFFIXES = {".pdf", ".docx", ".md", ".markdown", ".txt"}
+_FILE_SUFFIXES = {".pdf", ".docx", ".md", ".markdown", ".txt", ".xlsx", ".csv"}
 _TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -110,7 +125,7 @@ async def _add_file(
         raise HTTPException(400, "No file provided.")
     suffix = Path(file.filename).suffix.lower()
     if suffix not in _FILE_SUFFIXES:
-        raise HTTPException(400, "Unsupported file type (PDF, DOCX, MD or TXT).")
+        raise HTTPException(400, "Unsupported file type (PDF, DOCX, MD, TXT, XLSX or CSV).")
 
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
@@ -145,7 +160,11 @@ def _add_url(url: str | None, visibility: str, service: IngestionService) -> Add
     if not clean:
         raise HTTPException(400, "No URL provided.")
     try:
-        document = parse_web(clean)
+        # ``allow_local_files=False``: a submitted URL must never read a local file.
+        if is_google_sheets_url(clean):
+            document = parse_google_sheets(clean)
+        else:
+            document = parse_web(clean, allow_local_files=False)
     except (DomainError, OSError) as exc:
         raise HTTPException(400, f"Could not read this page: {exc}") from exc
     doc_id = service.stable_doc_id(f"url:{clean}")
@@ -175,10 +194,17 @@ def _add_text(
 
 @router.delete("/{doc_id}", response_model=DeleteDocumentResponse)
 def delete_document(
-    doc_id: str, store: Annotated[ChromaStore, Depends(get_store)]
+    doc_id: str,
+    store: Annotated[ChromaStore, Depends(get_store)],
+    lexical: Annotated[BM25Index, Depends(get_lexical_index)],
 ) -> DeleteDocumentResponse:
-    """Remove every chunk of *doc_id* from the index."""
+    """Remove every chunk of *doc_id* from both indexes."""
     removed = store.delete_document(doc_id)
     if removed == 0:
         raise HTTPException(404, "Document not found.")
+    try:
+        lexical.delete_document(doc_id)
+    except (DomainError, OSError) as exc:
+        # The vector store is the source of truth; rebuild BM25 if it drifts.
+        logger.warning("Lexical index not cleaned for %s: %s", doc_id, exc)
     return DeleteDocumentResponse(doc_id=doc_id, chunks_deleted=removed)

@@ -28,6 +28,21 @@ class Section:
     anchor: str | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class TableRow:
+    """One row of a tabular document, already rendered as readable text.
+
+    ``text`` carries the file name, the container (sheet or table) and every
+    ``header : value`` pair, e.g.
+    ``Fichier : bureau.xlsx | Feuille : Bureau | Nom : Amine | Rôle : Trésorier``.
+    """
+
+    text: str
+    container: str
+    row_number: int
+    sheet: str = ""
+
+
 @dataclass(slots=True)
 class ParsedDocument:
     """Normalized output produced by every parser."""
@@ -38,6 +53,10 @@ class ParsedDocument:
     title: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     sections: list[Section] = field(default_factory=list)
+    # Tabular sources (xlsx/csv) set this to one entry per logical row. The
+    # chunker then emits one chunk per row instead of splitting on characters.
+    # Invariant: ``text == "\\n".join(row.text for row in tabular)``.
+    tabular: list[TableRow] | None = None
 
     @property
     def is_empty(self) -> bool:

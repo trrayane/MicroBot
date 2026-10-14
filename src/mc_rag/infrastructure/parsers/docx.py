@@ -3,8 +3,9 @@
 The public entry point is :func:`parse_docx`. Body paragraphs are rendered in
 document order with headings preserved as Markdown-style ``#`` lines, and each
 heading starts a :class:`~mc_rag.infrastructure.parsers.base.Section` whose body
-is populated by the paragraphs that follow it. Table content is flattened and
-appended so tabular data is not silently dropped.
+is populated by the paragraphs that follow it. Tables are rendered row by row as
+``header : value`` lines so tabular data is neither dropped nor flattened into
+an unreadable ``a | b | c`` line.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from mc_rag.infrastructure.parsers.base import (
     resolve_document_path,
     slugify,
 )
+from mc_rag.infrastructure.parsers.table import TABLE_LABEL, build_rows
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ def parse_docx(file_path: str | Path) -> ParsedDocument:
         raise CorruptDocumentError(f"Unable to open DOCX: {path}") from exc
 
     lines, sections, paragraph_count, style_title = _extract_paragraphs(document)
-    lines.extend(_extract_tables(document))
+    lines.extend(_extract_tables(document, file_name=path.name))
 
     text = "\n".join(lines).strip()
     if not text:
@@ -124,15 +126,27 @@ def _extract_paragraphs(
     return lines, sections, paragraph_count, style_title
 
 
-def _extract_tables(document: DocxDocument) -> list[str]:
-    """Flatten table rows into ``" | "``-joined lines (best effort)."""
+def _extract_tables(document: DocxDocument, *, file_name: str) -> list[str]:
+    """Render table rows as ``header : value`` lines (never as ``a | b | c``).
+
+    The first row of a table is treated as its header when it holds only text;
+    otherwise columns are labelled ``Colonne N``. Rows keep the file name and
+    the table index so they remain understandable out of context.
+    """
     lines: list[str] = []
-    for table in document.tables:
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
-            row_text = " | ".join(cell for cell in cells if cell)
-            if row_text:
-                lines.append(row_text)
+    for index, table in enumerate(document.tables, start=1):
+        grid = [[cell.text for cell in row.cells] for row in table.rows]
+        try:
+            rows = build_rows(
+                grid,
+                file_name=file_name,
+                container=str(index),
+                container_label=TABLE_LABEL,
+            )
+        except EmptyDocumentError:
+            logger.debug("Skipping empty DOCX table %d", index)
+            continue
+        lines.extend(row.text for row in rows)
     return lines
 
 

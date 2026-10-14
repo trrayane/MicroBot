@@ -20,7 +20,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup, Comment
 from bs4.element import Tag
 
@@ -33,6 +32,7 @@ from mc_rag.infrastructure.parsers.base import (
     resolve_document_path,
     slugify,
 )
+from mc_rag.infrastructure.parsers.url_safety import safe_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,7 @@ def parse_web(
     *,
     timeout: float = _DEFAULT_TIMEOUT,
     headers: Mapping[str, str] | None = None,
+    allow_local_files: bool = True,
 ) -> ParsedDocument:
     """Parse a URL, a raw HTML string, or a local HTML file.
 
@@ -67,12 +68,17 @@ def parse_web(
         url_or_html: An ``http(s)://`` URL, an HTML string, or a filesystem path.
         timeout: Request timeout in seconds (only used for URLs).
         headers: Extra HTTP headers merged over the default user agent.
+        allow_local_files: Whether a filesystem path is accepted. The URL upload
+            endpoint passes ``False`` so a submitted "URL" cannot read files
+            from the host.
 
     Returns:
         The parsed :class:`ParsedDocument`.
 
     Raises:
         EmptyDocumentError: The input, response body or extracted text is empty.
+        UnsafeURLError: The URL scheme, host or resolved address is refused
+            (SSRF guard, see :mod:`mc_rag.infrastructure.parsers.url_safety`).
         ParsingError: The input is unrecognized, the fetch fails, or the file
             cannot be read.
     """
@@ -88,7 +94,7 @@ def parse_web(
         return parse_html(url_or_html, source="<string>")
 
     path = Path(candidate).expanduser()
-    if path.is_file():
+    if allow_local_files and path.is_file():
         resolved = resolve_document_path(path)
         return parse_html(_read_html_file(resolved), source=str(resolved))
 
@@ -154,32 +160,31 @@ def _looks_like_url(value: str) -> bool:
 
 
 def _fetch(url: str, *, timeout: float, headers: Mapping[str, str] | None) -> str:
-    """Fetch *url* and return its decoded body, mapping failures to domain errors."""
+    """Fetch *url* through the SSRF guard and return its decoded body.
+
+    Raises:
+        UnsafeURLError: The scheme, host or resolved address is refused.
+        EmptyDocumentError: The response body is empty.
+        ParsingError: The HTTP request failed.
+    """
     request_headers = {"User-Agent": _DEFAULT_USER_AGENT}
     if headers:
         request_headers.update(headers)
 
-    try:
-        with httpx.Client(
-            follow_redirects=True,
-            timeout=timeout,
-            headers=request_headers,
-        ) as client:
-            response = client.get(url)
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        logger.warning("HTTP error fetching %s: %s", url, exc)
-        raise ParsingError(
-            f"HTTP {exc.response.status_code} while fetching: {url}"
-        ) from exc
-    except (httpx.HTTPError, httpx.InvalidURL) as exc:
-        logger.warning("Network error fetching %s: %s", url, exc)
-        raise ParsingError(f"Unable to fetch URL: {url}") from exc
-
-    body = response.text
+    result = safe_fetch(url, timeout=timeout, headers=request_headers)
+    body = result.body.decode(_charset(result.content_type), errors="replace")
     if not body or not body.strip():
         raise EmptyDocumentError(f"Empty response body from: {url}")
     return body
+
+
+def _charset(content_type: str) -> str:
+    """Extract the charset of a ``Content-Type`` header, defaulting to UTF-8."""
+    for part in content_type.split(";")[1:]:
+        key, _, value = part.strip().partition("=")
+        if key.lower() == "charset" and value:
+            return value.strip("\"'")
+    return "utf-8"
 
 
 def _read_html_file(path: Path) -> str:
