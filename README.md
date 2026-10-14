@@ -1,8 +1,14 @@
-# MicroBot — RAG Assistant for MC Club
+<p align="center">
+  <img src="docs/logo-full.jpg" alt="Micro Club" width="280">
+</p>
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111%2B-009688.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+<h1 align="center">MicroBot — RAG Assistant for MC Club</h1>
+
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.111%2B-009688.svg" alt="FastAPI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+</p>
 
 **MicroBot** is a retrieval-augmented generation (RAG) service that answers questions about the MC Club (Micro Club) using only trusted, access-controlled documents. It ingests a mixed corpus — PDF, DOCX, Markdown, plain text, Excel/CSV, Google Sheets and web pages — indexes it into a local vector store + lexical (BM25) index, and produces grounded, cited answers gated by a public/members visibility policy.
 
@@ -244,4 +250,10 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-Built for **Micro Club (MC)** — Université des Sciences et de Technologie Houari Boumediene.
+---
+
+<p align="center">
+  <img src="docs/logo-icon.jpg" alt="Micro Club" width="64">
+</p>
+
+<p align="center">Built for <b>Micro Club (MC)</b> — Université des Sciences et de Technologie Houari Boumediene.</p>
