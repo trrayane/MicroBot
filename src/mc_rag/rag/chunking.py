@@ -131,10 +131,16 @@ def chunk_document(
     chunks: list[Chunk] = []
     for index, (chunk_text, start, end) in enumerate(spans):
         heading, level = _section_for(headings, heading_offsets, start)
+        # Prepend the section heading to the embeddable text so the embedding
+        # captures *where* the chunk lives, not just *what* it says. This
+        # dramatically improves retrieval for queries that name a topic
+        # ("procédure d'inscription") rather than quoting the chunk verbatim.
+        embed_text = _with_heading_context(chunk_text, heading, level)
         chunks.append(
             _make_chunk(
                 document,
-                text=chunk_text,
+                text=embed_text,
+                raw_text=chunk_text,
                 index=index,
                 start=start,
                 end=end,
@@ -233,6 +239,7 @@ def _make_chunk(
     document: ParsedDocument,
     *,
     text: str,
+    raw_text: str | None = None,
     index: int,
     start: int,
     end: int,
@@ -242,8 +249,13 @@ def _make_chunk(
     level: int | None,
     extra: dict[str, Any] | None = None,
 ) -> Chunk:
-    """Assemble one :class:`Chunk` with the standard provenance metadata."""
-    chunk_id = _make_chunk_id(document.source, index, text)
+    """Assemble one :class:`Chunk` with the standard provenance metadata.
+
+    ``text`` is what gets embedded (may include a heading prefix);
+    ``raw_text`` is the original slice used for citation display.
+    """
+    display_text = raw_text if raw_text is not None else text
+    chunk_id = _make_chunk_id(document.source, index, display_text)
     metadata: dict[str, Any] = {
         "chunk_id": chunk_id,
         "source": document.source,
@@ -257,8 +269,8 @@ def _make_chunk(
         "chunk_count": chunk_count,
         "start_char": start,
         "end_char": end,
-        "char_count": len(text),
-        "word_count": len(text.split()),
+        "char_count": len(display_text),
+        "word_count": len(display_text.split()),
         "document_metadata": dict(document.metadata),
     }
     if extra:
@@ -410,6 +422,24 @@ def _heading_offsets(text: str) -> list[tuple[int, str, int]]:
         if heading:
             headings.append((match.start(), heading, len(match.group("hashes"))))
     return headings
+
+
+def _with_heading_context(text: str, heading: str | None, level: int | None) -> str:
+    """Prepend the section heading to *text* for better embedding quality.
+
+    When the chunk already starts with the heading (or contains it verbatim),
+    no prefix is added to avoid redundancy.
+    """
+    if not heading or not text:
+        return text
+    # Avoid duplicating the heading if the chunk already leads with it.
+    stripped = text.lstrip()
+    if stripped.lower().startswith(heading.lower()):
+        return text
+    if heading.lower() in text[:200].lower():
+        return text
+    prefix = f"[{heading}] "
+    return prefix + text
 
 
 def _section_for(

@@ -33,6 +33,7 @@ from mc_rag.config import get_settings
 from mc_rag.infrastructure.embeddings.local_embedder import LocalEmbedder, get_embedder
 from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index, LexicalHit
 from mc_rag.infrastructure.llm.client import get_llm_client
+from mc_rag.infrastructure.reranking.cross_encoder import CrossEncoderReranker
 from mc_rag.infrastructure.vector_store.chroma_store import (
     ChromaStore,
     SearchResult,
@@ -70,6 +71,9 @@ class RetrievalResult:
     llm_calls: int = 0  # rewriting calls spent (0 or 1), the answer call is separate
     queries_run: int = 1  # queries actually searched, original included
     rewritten: str | None = None  # the rewritten query, when one was used
+    # Reranking observability.
+    reranked: bool = False  # whether the cross-encoder was applied
+    rerank_scores: list[float] = field(default_factory=list)  # cross-encoder scores
 
     @property
     def has_answer(self) -> bool:
@@ -109,6 +113,9 @@ class Retriever:
         hybrid_bm25_min_score: float | None = None,
         hybrid_candidate_pool: int | None = None,
         hybrid_require_both: bool | None = None,
+        reranker: CrossEncoderReranker | None = None,
+        rerank_enabled: bool | None = None,
+        rerank_pool_size: int | None = None,
         rewriter: QueryRewriter | None = None,
     ) -> None:
         settings = get_settings()
@@ -124,25 +131,33 @@ class Retriever:
             if min_score_multilingual is not None
             else settings.retrieval_min_score_multilingual
         )
-        # Hybrid retrieval: off by default, never required by the legacy path.
+        # Hybrid retrieval: on by default (BM25 + vector + RRF).
         self.hybrid_enabled = (
             settings.hybrid_enabled if hybrid_enabled is None else hybrid_enabled
         )
         self.hybrid_rrf_k = settings.hybrid_rrf_k
         self.hybrid_bm25_min_score = (
-            settings.hybrid_bm25_min_score
-            if hybrid_bm25_min_score is None
-            else hybrid_bm25_min_score
+            hybrid_bm25_min_score
+            if hybrid_bm25_min_score is not None
+            else settings.hybrid_bm25_min_score
         )
         self.hybrid_require_both = (
-            settings.hybrid_require_both
-            if hybrid_require_both is None
-            else hybrid_require_both
+            hybrid_require_both
+            if hybrid_require_both is not None
+            else settings.hybrid_require_both
         )
         pool = settings.hybrid_candidate_pool if hybrid_candidate_pool is None else (
             hybrid_candidate_pool
         )
         self.hybrid_candidate_pool = max(pool, self.top_k)
+        # Cross-encoder reranking: on by default for precision.
+        self.rerank_enabled = (
+            settings.rerank_enabled if rerank_enabled is None else rerank_enabled
+        )
+        self.rerank_pool_size = (
+            rerank_pool_size if rerank_pool_size is not None else settings.rerank_pool_size
+        )
+        self._reranker = reranker
         # Query rewriting / multi-query: off by default, one shared LLM call.
         if rewriter is None and (
             settings.query_rewrite_enabled or settings.multi_query_enabled
@@ -156,6 +171,34 @@ class Retriever:
         if self._lexical is None:
             self._lexical = BM25Index()
         return self._lexical
+
+    @property
+    def reranker(self) -> CrossEncoderReranker:
+        """The cross-encoder reranker, loaded lazily on first use."""
+        if self._reranker is None:
+            from mc_rag.infrastructure.reranking.cross_encoder import get_reranker
+
+            self._reranker = get_reranker()
+        return self._reranker
+
+    def _apply_reranking(
+        self, base_query: str, hits: list[SearchResult]
+    ) -> list[SearchResult]:
+        """Rerank *hits* with the cross-encoder, returning the best ``top_k``.
+
+        Falls back to the original order when reranking is disabled or fails.
+        """
+        if not self.rerank_enabled or len(hits) <= 1:
+            return hits[: self.top_k]
+        pool = hits[: max(self.rerank_pool_size, self.top_k)]
+        try:
+            ranked = self.reranker.rerank(
+                base_query, [hit.text for hit in pool], top_k=self.top_k
+            )
+        except Exception:  # noqa: BLE001 - reranking is best-effort
+            logger.exception("Reranking failed; using original order.")
+            return pool[: self.top_k]
+        return [pool[idx] for idx, _ in ranked]
 
     def _threshold_for(self, message: str) -> float:
         """Return the score threshold to apply for *message*'s language.
@@ -283,21 +326,27 @@ class Retriever:
         """Vector-only, single query: the historical behaviour, byte for byte."""
         kept = [hit for hit in vector_hits if hit.score >= threshold]
         best = max((hit.score for hit in vector_hits), default=None)
+        reranked_hits = self._apply_reranking(base_query, kept)
+        rerank_scores = [hit.score for hit in reranked_hits] if self.rerank_enabled else []
         logger.info(
-            "retrieval query_len=%d member=%s raw=%d kept=%d threshold=%.2f best_score=%s",
+            "retrieval query_len=%d member=%s raw=%d kept=%d threshold=%.2f "
+            "best_score=%s reranked=%s",
             len(base_query),
             is_member,
             len(vector_hits),
             len(kept),
             threshold,
             best,
+            self.rerank_enabled,
         )
         return RetrievalResult(
             search_query=base_query,
-            hits=kept,
+            hits=reranked_hits,
             best_score=best,
             llm_calls=plan.llm_calls,
             rewritten=plan.rewritten or None,
+            reranked=self.rerank_enabled,
+            rerank_scores=rerank_scores,
         )
 
     def _assemble_vector_multi(
@@ -317,14 +366,16 @@ class Retriever:
             for item in fused
             if item.candidate.vector_score is not None
             and item.candidate.vector_score >= threshold
-        ][: self.top_k]
+        ][: self.rerank_pool_size]
         hits = [to_search_result(item.candidate) for item in kept]
+        reranked_hits = self._apply_reranking(base_query, hits)
+        rerank_scores = [hit.score for hit in reranked_hits] if self.rerank_enabled else []
         best = max(
             (hit.score for hits in vector_lists for hit in hits), default=None
         )
         logger.info(
             "retrieval query_len=%d member=%s queries=%d raw=%d kept=%d "
-            "threshold=%.2f best_score=%s rewritten=%s",
+            "threshold=%.2f best_score=%s rewritten=%s reranked=%s",
             len(base_query),
             is_member,
             len(vector_lists),
@@ -333,14 +384,17 @@ class Retriever:
             threshold,
             best,
             bool(plan.rewritten),
+            self.rerank_enabled,
         )
         return RetrievalResult(
             search_query=base_query,
-            hits=hits,
+            hits=reranked_hits,
             best_score=best,
             llm_calls=plan.llm_calls,
             queries_run=len(vector_lists),
             rewritten=plan.rewritten or None,
+            reranked=self.rerank_enabled,
+            rerank_scores=rerank_scores,
         )
 
     def _assemble_hybrid(
@@ -371,9 +425,11 @@ class Retriever:
                 bm25_min=self.hybrid_bm25_min_score,
                 require_both=self.hybrid_require_both,
             )
-        ][: self.top_k]
+        ][: self.rerank_pool_size]
 
         hits = [to_search_result(item.candidate) for item in kept]
+        reranked_hits = self._apply_reranking(base_query, hits)
+        rerank_scores = [hit.score for hit in reranked_hits] if self.rerank_enabled else []
         best_score = max((hit.score for hits_ in vector_lists for hit in hits_), default=None)
         best_bm25 = max(
             (
@@ -388,7 +444,7 @@ class Retriever:
         logger.info(
             "hybrid retrieval query_len=%d member=%s queries=%d vector=%d lexical=%d "
             "fused=%d kept=%d threshold=%.2f bm25_min=%.2f best_score=%s "
-            "best_bm25=%s rrf=%s llm_calls=%d",
+            "best_bm25=%s rrf=%s llm_calls=%d reranked=%s",
             len(base_query),
             is_member,
             len(vector_lists),
@@ -402,10 +458,11 @@ class Retriever:
             best_bm25,
             rrf_best,
             plan.llm_calls,
+            self.rerank_enabled,
         )
         return RetrievalResult(
             search_query=base_query,
-            hits=hits,
+            hits=reranked_hits,
             best_score=best_score,
             hybrid=True,
             best_bm25_score=best_bm25,
@@ -413,4 +470,6 @@ class Retriever:
             llm_calls=plan.llm_calls,
             queries_run=len(vector_lists),
             rewritten=plan.rewritten or None,
+            reranked=self.rerank_enabled,
+            rerank_scores=rerank_scores,
         )

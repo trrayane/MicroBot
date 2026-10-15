@@ -131,9 +131,9 @@ class Settings(BaseSettings):
     url_fetch_max_redirects: int = 5
 
     # --- Hybrid retrieval (BM25 + vector, fused with RRF) ------------------
-    # Off by default: with everything disabled the service behaves exactly as
-    # before this feature existed.
-    hybrid_enabled: bool = False
+    # On by default: BM25 catches exact terms the embedder might miss, and RRF
+    # fuses both rankings without needing to reconcile cosine and BM25 scales.
+    hybrid_enabled: bool = True
     hybrid_rrf_k: int = 60
     # Candidates fetched per channel before fusing and cutting to top_k.
     hybrid_candidate_pool: int = 20
@@ -144,6 +144,17 @@ class Settings(BaseSettings):
     # True -> answer only when BOTH channels pass; False -> either one passes.
     hybrid_require_both: bool = False
     bm25_index_path: str = "./storage/bm25.sqlite3"
+
+    # --- Cross-encoder reranking -------------------------------------------
+    # Reranks the fused candidate pool with a cross-encoder for precision.
+    # MiniLM ~80 MB / ~2 s load. For stronger multilingual precision swap to
+    # BAAI/bge-reranker-v2-m3 (~2 GB, ~30-60 s first load).
+    rerank_enabled: bool = True
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # Candidates fed to the cross-encoder (before cutting to top_k).
+    rerank_pool_size: int = 20
+    # Cross-encoder logit threshold; below this the chunk is dropped.
+    rerank_min_score: float = -5.0
 
     # --- Query rewriting / multi-query (conditional, at most ONE LLM call) --
     query_rewrite_enabled: bool = False

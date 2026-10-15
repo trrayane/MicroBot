@@ -132,7 +132,8 @@ def test_system_prompt_states_the_rules(make_hit):
     system = messages[0]["content"]
     assert NO_ANSWER_MARKER in system
     assert "respond entirely in" in system.lower()
-    assert "data" in system.lower() and "instructions" in system.lower()
+    assert "untrusted data" in system.lower()
+    assert "instruction" in system.lower()
 
 
 def test_sources_are_numbered_in_order(make_hit):
