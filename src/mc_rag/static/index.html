@@ -346,7 +346,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
 </head>
 <body>
 <div class="shell cs" id="app" data-mode="public" data-view="chat">
-  <header class="mbar" id="mbar"><button class="mbtn" type="button" aria-label="Ouvrir le menu" aria-expanded="false" onclick="openDrawer()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="mlogo logo-icon" role="img" aria-label="Micro Club"></div><div class="mtitle"><span class="mname">MicroBot</span><span class="mstat"><i></i><span id="mstat">En ligne</span></span></div><span style="flex:1"></span><button class="mbtn" type="button" aria-label="Nouveau chat" onclick="newChat()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></button><a class="mbtn" href="#/admin" data-pubmode aria-label="Espace admin"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.2 8 8 9 4.8-1 8-4.5 8-9V6z"/></svg></a><a class="mbtn" href="#/" data-admmode hidden aria-label="Voir le site public"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></a></header>
+  <header class="mbar" id="mbar"><button class="mbtn" type="button" aria-label="Ouvrir le menu" aria-expanded="false" onclick="openDrawer()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="mlogo logo-icon" role="img" aria-label="Micro Club"></div><div class="mtitle"><span class="mname">MicroBot</span><span class="mstat"><i></i><span id="mstat">En ligne</span></span></div><span style="flex:1"></span><button class="mbtn" type="button" aria-label="Nouveau chat" onclick="newChat()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></button><a class="mbtn" href="/api/v1/auth/discord/login" data-pubmode aria-label="Continuer avec Discord" style="background:#5865F2;color:#fff;border-radius:8px"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="width:18px;height:18px"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg></a><a class="mbtn" href="#/" data-admmode hidden aria-label="Voir le site public"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></a></header>
   <div class="scrim" onclick="closeDrawer()"></div>
   <aside class="sidebar" aria-label="Navigation">
     <div class="profile">
@@ -367,6 +367,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
     <hr>
     <div class="hwrap"><p class="hlabel">Historique</p><div class="hist" id="hist"></div></div>
     <div class="actions" id="acts">
+      <button class="action" type="button" id="avatarBtn" title="Profil" aria-label="Profil" hidden onclick="showProfile()" style="padding:0;overflow:hidden;border-radius:50%"><img id="avatarImg" src="" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:none"><svg class="icon" id="avatarIcon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg></button>
       <button class="action" type="button" title="Changer de thème" aria-label="Changer de thème" onclick="toggleTheme()"><svg class="icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><svg class="icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
       <button class="action" type="button" title="Aide" aria-label="Aide" onclick="toast(adminOk?'Mode admin : le chatbot utilise aussi les documents réservés aux membres.':'Je réponds uniquement à partir des documents publics de MC.')"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg></button>
       <a class="action" href="#/" title="Voir le site public" aria-label="Voir le site public" data-admmode hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></a>
@@ -375,7 +376,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
   </aside>
   <div class="main">
     <section id="pChat">
-      <header class="top"><h1>Pose ta question <span class="hl">sur MC</span></h1><a class="btn s sm tmpadmin" href="#/admin" data-pubmode>Admin <span class="bd wa">temporaire</span></a></header>
+      <header class="top"><h1>Pose ta question <span class="hl">sur MC</span></h1><a class="btn s sm tmpadmin" href="/api/v1/auth/discord/login" data-pubmode style="background:#5865F2;color:#fff;border:none;text-decoration:none;display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>Continuer avec Discord</a></header>
       <div class="chat">
         <div class="msgs" id="msgs" aria-live="polite"></div>
         <div class="comp">
@@ -387,7 +388,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
         </div>
       </div>
     </section>
-    <section class="page hid" id="pGate"><div class="card" style="display:flex;flex-direction:column;gap:14px"><div class="plogo logo-full" role="img" aria-label="Micro Club"></div><h3 style="text-align:center">Connexion bureau</h3><p class="ds">Saisissez la clé d'administration. Démo : <b>admin-demo</b></p>
+    <section class="page hid" id="pGate"><div class="card" style="display:flex;flex-direction:column;gap:14px"><div class="plogo logo-full" role="img" aria-label="Micro Club"></div><h3 style="text-align:center">Connexion bureau</h3><p class="ds">Saisissez la clé d'administration.</p>
       <div class="fld"><label for="key">Clé admin</label><input class="inp" id="key" type="password" onkeydown="if(event.key==='Enter')unlock()"></div><button class="btn p" onclick="unlock()">Se connecter</button></div></section>
     <section class="page hid" id="pDash">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1">Tableau de <span class="hl">bord</span></h1><p class="ds">Vue d'ensemble de la base de connaissances et du quota du jour.</p></div></div><span class="bd ok" id="health">Statut : ok</span></div>
@@ -597,7 +598,26 @@ document.addEventListener('DOMContentLoaded', welcome);
 
 /* Page admin (/admin/) : accès par clé, gestion des documents, quota, feedback */
 let filter = 'all', seq = 46;
-const unlocked = () => { try { return sessionStorage.getItem('mc_admin') === '1'; } catch (e) { return false; } };
+const unlocked = () => {
+  try { return sessionStorage.getItem('mc_admin') === '1' || !!sessionStorage.getItem('mc_token'); } catch (e) { return false; }
+};
+
+/* Parse le hash pour capturer le token JWT renvoyé par Discord OAuth */
+(function parseOAuthFragment() {
+  const h = location.hash || '';
+  const m = h.match(/[#&]token=([^&]+)/);
+  if (m && m[1]) {
+    try { sessionStorage.setItem('mc_token', decodeURIComponent(m[1])); sessionStorage.setItem('mc_admin', '1'); } catch (e) {}
+    /* Nettoie le hash pour ne pas exposer le token */
+    history.replaceState(null, '', location.pathname + location.search + '#/admin');
+  }
+  const em = h.match(/[#&]error=([^&]+)/);
+  if (em) {
+    const msg = em[1] === 'not_member' ? 'Vous n\'êtes pas membre du serveur Discord MC.' : 'Connexion annulée.';
+    try { toast(msg); } catch (e) {}
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+})();
 
 function unlock() {
   if ($('key').value === MC.ADMIN_KEY) { try { sessionStorage.setItem('mc_admin', '1'); } catch (e) {} $('key').value = ''; route(); }
@@ -606,7 +626,7 @@ function unlock() {
 function lockAdmin() { try { sessionStorage.removeItem('mc_admin'); } catch (e) {} route(); toast('Session admin verrouillée.'); }
 
 /* Table de données : tri, filtre, recherche, pagination (même logique que McDataTable) */
-const PAGE_SIZE = 5, COLS = [['title', 'Titre'], ['id', 'ID'], ['vis', 'Visibilité'], ['status', 'Statut'], ['chunks', 'Chunks'], [null, '']];
+const PAGE_SIZE = 5, COLS = [['title', 'Titre'], ['id', 'ID'], ['vis', 'Visibilité'], ['status', 'Statut'], ['chunks', 'Chunks'], ['uploader', 'Par'], [null, '']];
 let dSort = null, dDir = 'asc', dPage = 0, dQ = '';
 const sval = (d, k) => k === 'title' ? d.title.toLowerCase() : k === 'id' ? (parseInt(String(d.id).slice(2)) || 0) : k === 'chunks' ? MC.chunks(d) : String(d[k]);
 function sortBy(k) { if (dSort !== k) { dSort = k; dDir = 'asc'; } else if (dDir === 'asc') dDir = 'desc'; else dSort = null; dPage = 0; draw(); }
@@ -619,7 +639,7 @@ function pageItems(page, count) {
 }
 function drawTable(docs) {
   const q = dQ.trim().toLowerCase();
-  let L = docs.filter(d => (filter === 'all' || d.vis === filter) && (!q || [d.title, d.id, d.vis, d.status, d.src ? (d.src.host || d.src.name || '') : ''].join(' ').toLowerCase().includes(q)));
+  let L = docs.filter(d => (filter === 'all' || d.vis === filter) && (!q || [d.title, d.id, d.vis, d.status, d.uploader || '', d.src ? (d.src.host || d.src.name || '') : ''].join(' ').toLowerCase().includes(q)));
   if (dSort) { const m = dDir === 'asc' ? 1 : -1; L = L.slice().sort((a, b) => { const x = sval(a, dSort), y = sval(b, dSort); return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), 'fr')) * m; }); }
   const pages = Math.max(1, Math.ceil(L.length / PAGE_SIZE)); dPage = Math.min(dPage, pages - 1);
   const rows = L.slice(dPage * PAGE_SIZE, (dPage + 1) * PAGE_SIZE), cur = dPage + 1;
@@ -630,11 +650,11 @@ function drawTable(docs) {
     const on = dSort === k;
     return `<th scope="col"${on ? ` aria-sort="${dDir === 'asc' ? 'ascending' : 'descending'}"` : ''}><button type="button" class="srt${on ? ' on' : ''}" onclick="sortBy('${k}')">${l}<svg viewBox="0 0 24 24" aria-hidden="true">${on && dDir === 'asc' ? '<path d="m5 12 7-7 7 7M12 19V5"/>' : '<path d="M12 5v14m7-7-7 7-7-7"/>'}</svg></button></th>`;
   }).join('');
-  const skel = busy ? `<tr aria-hidden="true">${[180, 40, 70, 64, 28, 0].map(w => `<td>${w ? `<div class="skel" style="height:16px;width:${w}px"></div>` : ''}</td>`).join('')}</tr>` : '';
-  let body = rows.map(d => `<tr><td><div class="ct"><b>${esc(d.title)}</b>${srcLine(d)}</div></td><td>${d.id}</td><td><span class="bd ${d.vis === 'public' ? 's' : 'l'}">${d.vis}</span></td><td><span class="bd ${d.status === 'indexé' ? 'ok' : 'wa'}">${d.status}</span></td><td>${MC.chunks(d)}</td><td style="text-align:right"><button class="btn ds sm" aria-label="Supprimer ${esc(d.title)}" onclick="del('${d.id}')">Supprimer</button></td></tr>`).join('');
+  const skel = busy ? `<tr aria-hidden="true">${[180, 40, 70, 64, 28, 60, 0].map(w => `<td>${w ? `<div class="skel" style="height:16px;width:${w}px"></div>` : ''}</td>`).join('')}</tr>` : '';
+  let body = rows.map(d => `<tr><td><div class="ct"><b>${esc(d.title)}</b>${srcLine(d)}</div></td><td>${d.id}</td><td><span class="bd ${d.vis === 'public' ? 's' : 'l'}">${d.vis}</span></td><td><span class="bd ${d.status === 'indexé' ? 'ok' : 'wa'}">${d.status}</span></td><td>${MC.chunks(d)}</td><td>${d.uploader ? esc(d.uploader) : '<span style="opacity:.4">—</span>'}</td><td style="text-align:right"><button class="btn ds sm" aria-label="Supprimer ${esc(d.title)}" onclick="del('${d.id}')">Supprimer</button></td></tr>`).join('');
   if (!rows.length && !busy) {
     const none = !docs.length;
-    body = `<tr><td colspan="6" style="padding:0;height:auto"><div class="dte"><div class="ei"><svg viewBox="0 0 24 24" aria-hidden="true">${none ? '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>' : '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'}</svg></div><div><p class="t">${none ? 'Aucun document' : 'Aucun résultat'}</p><p class="d">${none ? "Ajoute un fichier, un lien ou du texte pour alimenter l'assistant." : 'Aucun document ne correspond à ta recherche.'}</p></div>${none ? `<button class="btn p sm" type="button" onclick="document.querySelector('.addc').scrollIntoView({behavior:'smooth'})">Ajouter un document</button>` : `<button class="btn s sm" type="button" onclick="resetFilters()">Réinitialiser</button>`}</div></td></tr>`;
+    body = `<tr><td colspan="7" style="padding:0;height:auto"><div class="dte"><div class="ei"><svg viewBox="0 0 24 24" aria-hidden="true">${none ? '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>' : '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'}</svg></div><div><p class="t">${none ? 'Aucun document' : 'Aucun résultat'}</p><p class="d">${none ? "Ajoute un fichier, un lien ou du texte pour alimenter l'assistant." : 'Aucun document ne correspond à ta recherche.'}</p></div>${none ? `<button class="btn p sm" type="button" onclick="document.querySelector('.addc').scrollIntoView({behavior:'smooth'})">Ajouter un document</button>` : `<button class="btn s sm" type="button" onclick="resetFilters()">Réinitialiser</button>`}</div></td></tr>`;
   }
   $('rows').innerHTML = skel + body;
   const ar = d => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -803,6 +823,7 @@ function route() {
   member = adminOk;                       // l'admin voit aussi les documents « members »
   if (member !== prev) welcome();         // on repart d'un chat vide quand l'accès change
   setView(mode === 'public' ? 'chat' : adminOk ? lastAdm : 'gate');
+  if (!ME && tokenGet()) loadMe().catch(() => {});
 }
 addEventListener('hashchange', route); document.addEventListener('DOMContentLoaded', route);
 </script>
@@ -812,9 +833,54 @@ addEventListener('hashchange', route); document.addEventListener('DOMContentLoad
    On remplace la couche démo localStorage par des appels réseau. */
 const API = { docs: [], fbs: [] };
 
+/* --- Auth: JWT (Discord) ou clé admin (X-Admin-Key) --- */
+function tokenGet() { try { return sessionStorage.getItem('mc_token') || ''; } catch (e) { return ''; } }
+function tokenSet(t) { try { t ? sessionStorage.setItem('mc_token', t) : sessionStorage.removeItem('mc_token'); } catch (e) {} }
 function adminKeyGet() { try { return sessionStorage.getItem('mc_admin_key') || ''; } catch (e) { return ''; } }
 function adminKeySet(k) { try { k ? sessionStorage.setItem('mc_admin_key', k) : sessionStorage.removeItem('mc_admin_key'); } catch (e) {} }
-function authHeaders() { const k = adminKeyGet(); return k ? { 'X-Admin-Key': k } : {}; }
+function authHeaders() {
+  const t = tokenGet();
+  if (t) return { 'Authorization': 'Bearer ' + t };
+  const k = adminKeyGet();
+  if (k) return { 'X-Admin-Key': k };
+  return {};
+}
+function discordAvatarUrl(userId, avatar, size) {
+  if (!userId || !avatar) return null;
+  const ext = avatar.startsWith('a_') ? 'gif' : 'png';
+  return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.${ext}?size=${size || 64}`;
+}
+
+/* User info cached from /api/v1/auth/me */
+let ME = null;
+async function loadMe() {
+  try {
+    ME = await api('/api/v1/auth/me', { headers: authHeaders() });
+  } catch (e) { ME = null; }
+  updateAvatar();
+  return ME;
+}
+function updateAvatar() {
+  const btn = document.getElementById('avatarBtn');
+  const img = document.getElementById('avatarImg');
+  const icon = document.getElementById('avatarIcon');
+  if (!btn) return;
+  if (ME && ME.role && ME.role !== 'anonymous') {
+    btn.hidden = false;
+    const url = ME.avatar ? discordAvatarUrl(ME.user_id, ME.avatar, 64) : null;
+    if (url) { img.src = url; img.style.display = 'block'; icon.style.display = 'none'; }
+    else { img.style.display = 'none'; icon.style.display = 'block'; }
+    btn.title = ME.display_name || 'Profil';
+    document.getElementById('role').textContent =
+      ME.role === 'admin' ? 'Administrateur' : 'Membre';
+  } else {
+    btn.hidden = true;
+  }
+}
+function showProfile() {
+  if (!ME) return;
+  toast((ME.display_name || 'Utilisateur') + ' · ' + (ME.role === 'admin' ? 'Administrateur' : 'Membre'));
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
@@ -832,7 +898,7 @@ function mapDoc(d) {
   let src = { type: 'text' };
   if (/^https?:\/\//i.test(s)) { let h = s; try { h = new URL(s).hostname.replace(/^www\./, ''); } catch (e) {} src = { type: 'url', url: s, host: h }; }
   else if (s && s.indexOf('text:') !== 0) src = { type: 'file', name: s.split(/[\\/]/).pop() };
-  return { id: d.doc_id, title: d.title, vis: d.visibility, status: 'indexé', chunks: d.chunks, src };
+  return { id: d.doc_id, title: d.title, vis: d.visibility, status: 'indexé', chunks: d.chunks, src, uploader: d.uploaded_by || '' };
 }
 
 /* Le nombre de chunks vient désormais du serveur, plus d'une estimation cliente. */
@@ -840,6 +906,7 @@ MC.chunks = d => d.chunks || 0;
 
 async function loadAdminData() {
   const headers = authHeaders();
+  await loadMe();
   const [docs, fbs] = await Promise.all([
     api('/api/v1/documents', { headers }),
     api('/api/v1/feedback?limit=200', { headers })
@@ -966,7 +1033,7 @@ unlock = async function () {
     $('key').value = ''; route();
   } catch (e) { toast('Clé invalide (401). Réessayez.'); }
 };
-lockAdmin = function () { try { sessionStorage.removeItem('mc_admin'); } catch (e) {} adminKeySet(''); route(); toast('Session admin verrouillée.'); };
+lockAdmin = function () { try { sessionStorage.removeItem('mc_admin'); sessionStorage.removeItem('mc_token'); } catch (e) {} adminKeySet(''); ME = null; updateAvatar(); route(); toast('Session déverrouillée.'); };
 
 addDoc = async function () {
   if (busy) return;
@@ -988,15 +1055,47 @@ addDoc = async function () {
     if (!title) return toast('Donne un titre à ce texte.');
     fd.append('mode', 'text'); fd.append('text', text); fd.append('title', title);
   }
-  setBusy(true, srcMode === 'url' ? 'Lecture de la page…' : 'Ingestion…');
+  setBusy(true, 'Envoi…');
   try {
     const out = await api('/api/v1/documents', { method: 'POST', headers: authHeaders(), body: fd });
-    toast('Ajouté : ' + out.doc_id + ' (' + out.chunks + ' chunks)');
-    resetAdd(); await loadAdminData();
+    toast('Envoyé : ' + out.doc_id + ' — indexation en cours…');
+    resetAdd();
+    /* Poll le statut d'indexation en arrière-plan */
+    _pollIngestion(out.doc_id);
   } catch (e) {
     if (srcMode === 'url') urlErr(e.message || 'Impossible de lire cette page.', true); else toast('Échec : ' + e.message);
   } finally { setBusy(false); }
 };
+
+/* Poll le statut d'ingestion jusqu'à un état terminal */
+async function _pollIngestion(docId) {
+  const maxAttempts = 120; /* 2 min max */
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const s = await api('/api/v1/documents/' + encodeURIComponent(docId) + '/status', { headers: authHeaders() });
+      if (s.status === 'indexed' || s.status === 'updated') {
+        toast('Indexé : ' + s.title + ' (' + s.chunks + ' chunks, ' + (s.elapsed_ms / 1000).toFixed(1) + 's)');
+        await loadAdminData();
+        return;
+      }
+      if (s.status === 'unchanged') {
+        toast('Déjà indexé : ' + s.title + ' (inchangé)');
+        await loadAdminData();
+        return;
+      }
+      if (s.status === 'failed') {
+        toast('Échec : ' + (s.error || 'erreur inconnue'));
+        return;
+      }
+      /* sinon : encore "processing", on continue */
+    } catch (e) {
+      /* statut expiré ou erreur réseau — on arrête silencieusement */
+      return;
+    }
+  }
+  toast("L'indexation prend plus de temps que prévu. Vérifie plus tard.");
+}
 
 del = function (id) {
   const d = (API.docs || []).find(x => x.id === id) || { title: id };

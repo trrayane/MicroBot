@@ -77,5 +77,13 @@ class AuthenticationError(DomainError):
     """Raised when a credential is present but invalid."""
 
 
+class InvalidInput(DomainError):
+    """Raised when user input fails validation at the API boundary."""
+
+
+class UpstreamUnavailable(DomainError):
+    """Raised when an external service (Discord, OpenRouter…) is unreachable."""
+
+
 class ConversationNotFoundError(DomainError):
     """Raised when a conversation does not exist or is not accessible to the caller."""

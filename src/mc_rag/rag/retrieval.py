@@ -38,6 +38,7 @@ from mc_rag.infrastructure.vector_store.chroma_store import (
     SearchResult,
     allowed_visibilities,
 )
+from mc_rag.rag.grounding import detect_language
 from mc_rag.rag.hybrid import (
     Candidate,
     accept,
@@ -46,7 +47,6 @@ from mc_rag.rag.hybrid import (
     rrf_fuse,
     to_search_result,
 )
-from mc_rag.rag.prompts import question_language
 from mc_rag.rag.query_rewriting import QueryPlan, QueryRewriter
 
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ class Retriever:
         """
         if self._min_score_override is not None:
             return self._min_score_override
-        if question_language(message) == "English":
+        if detect_language(message) == "en":
             return self.min_score
         return self.min_score_multilingual
 

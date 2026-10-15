@@ -1,13 +1,16 @@
-﻿"""Document management endpoints (admin only): list, add, delete.
+﻿"""Document management endpoints (admin only): list, add, delete, status.
 
-Adding a document accepts three modes, all sent as ``multipart/form-data`` so a
-file upload and the text-based modes share one endpoint:
+Adding a document accepts three modes, all sent as ``multipart/form-data``:
 
-* ``mode=file`` -> ``file`` (PDF, DOCX, Markdown, TXT, XLSX or CSV), stored under
-  ``UPLOAD_DIR`` then ingested;
-* ``mode=url``  -> ``url`` fetched and cleaned server side (Google Sheets links
-    are exported as a spreadsheet, everything else goes through the SSRF guard);
+* ``mode=file`` -> ``file`` (PDF, DOCX, Markdown, TXT, XLSX or CSV);
+* ``mode=url``  -> ``url`` fetched and cleaned server side;
 * ``mode=text`` -> ``text`` pasted directly.
+
+All three modes are **asynchronous**: the request returns ``202 Accepted``
+immediately and the heavy work (parse → chunk → embed → index) runs in a
+background task.  The client polls ``GET /documents/{doc_id}/status`` until
+the job reaches a terminal state (``indexed``, ``updated``, ``unchanged``
+or ``failed``).
 """
 
 from __future__ import annotations
@@ -17,12 +20,15 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 
 from mc_rag.api.dependencies import (
+    Access,
+    get_access,
     get_ingestion_service,
     get_lexical_index,
     get_store,
+    get_user_store,
     require_admin,
 )
 from mc_rag.api.schemas import (
@@ -30,8 +36,10 @@ from mc_rag.api.schemas import (
     DeleteDocumentResponse,
     DocumentOut,
     DocumentsResponse,
+    DocumentStatusResponse,
 )
-from mc_rag.application.ingestion_service import FileIngestionResult, IngestionService
+from mc_rag.application.ingestion_service import IngestionService
+from mc_rag.application.ingestion_status import IngestionStatusTracker, get_status_tracker
 from mc_rag.config import get_settings
 from mc_rag.domain.exceptions import DomainError
 from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index
@@ -41,6 +49,7 @@ from mc_rag.infrastructure.parsers import (
     parse_google_sheets,
     parse_web,
 )
+from mc_rag.infrastructure.persistence.user_store import UserStore
 from mc_rag.infrastructure.vector_store.chroma_store import (
     ALL_VISIBILITIES,
     VISIBILITY_PUBLIC,
@@ -69,30 +78,53 @@ def _check_visibility(visibility: str) -> str:
     return visibility
 
 
-def _result_response(
-    result: FileIngestionResult, *, title: str, visibility: str
-) -> AddDocumentResponse:
-    if not result.succeeded:
-        raise HTTPException(400, result.error or "Ingestion failed.")
-    return AddDocumentResponse(
-        doc_id=result.doc_id or "",
-        title=title,
-        status=str(result.status),
-        chunks=result.chunks,
-        visibility=visibility,
+@router.get("", response_model=DocumentsResponse)
+def list_documents(
+    store: Annotated[ChromaStore, Depends(get_store)],
+    user_store: Annotated[UserStore, Depends(get_user_store)],
+) -> DocumentsResponse:
+    """List every indexed document with its chunk count and uploader."""
+    rows = store.list_documents()
+    doc_ids = [row["doc_id"] for row in rows]
+    owners = user_store.get_owners_for_documents(doc_ids)
+    documents = []
+    for row in rows:
+        owner = owners.get(row["doc_id"])
+        documents.append(
+            DocumentOut(
+                **row,
+                uploaded_by=str(owner["owner_name"]) if owner else None,
+            )
+        )
+    return DocumentsResponse(documents=documents)
+
+
+@router.get("/{doc_id}/status", response_model=DocumentStatusResponse)
+def document_status(
+    doc_id: str,
+    tracker: Annotated[IngestionStatusTracker, Depends(get_status_tracker)],
+) -> DocumentStatusResponse:
+    """Return the ingestion status for *doc_id* (poll this after an upload)."""
+    job = tracker.get(doc_id)
+    if job is None:
+        raise HTTPException(404, "Unknown document or job expired.")
+    return DocumentStatusResponse(
+        doc_id=job.doc_id,
+        title=job.title,
+        status=job.status,
+        chunks=job.chunks,
+        error=job.error,
+        elapsed_ms=job.elapsed_ms,
     )
 
 
-@router.get("", response_model=DocumentsResponse)
-def list_documents(store: Annotated[ChromaStore, Depends(get_store)]) -> DocumentsResponse:
-    """List every indexed document with its chunk count."""
-    rows = store.list_documents()
-    return DocumentsResponse(documents=[DocumentOut(**row) for row in rows])
-
-
-@router.post("", response_model=AddDocumentResponse)
+@router.post("", response_model=AddDocumentResponse, status_code=202)
 async def add_document(
+    background: BackgroundTasks,
+    access: Annotated[Access, Depends(get_access)],
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
+    tracker: Annotated[IngestionStatusTracker, Depends(get_status_tracker)],
+    user_store: Annotated[UserStore, Depends(get_user_store)],
     mode: Annotated[str, Form()],
     visibility: Annotated[str, Form()] = VISIBILITY_PUBLIC,
     title: Annotated[str | None, Form()] = None,
@@ -100,26 +132,49 @@ async def add_document(
     text: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> AddDocumentResponse:
-    """Ingest a file, a web article or pasted text."""
+    """Queue a file, a web article or pasted text for background ingestion."""
     _check_visibility(visibility)
     settings = get_settings()
     mode = mode.strip().lower()
 
+    # Determine the uploader for attribution.
+    uploader_id = access.user_id or "admin-key"
+    uploader_name = access.display_name or "Admin"
+
     if mode == "file":
-        return await _add_file(file, title, visibility, service, settings.upload_dir)
+        return await _queue_file(
+            background, file, title, visibility, service, tracker,
+            settings.upload_dir, user_store, uploader_id, uploader_name,
+        )
     if mode == "url":
-        return _add_url(url, visibility, service)
+        return _queue_url(
+            background, url, visibility, service, tracker,
+            user_store, uploader_id, uploader_name,
+        )
     if mode == "text":
-        return _add_text(text, title, visibility, service)
+        return _queue_text(
+            background, text, title, visibility, service, tracker,
+            user_store, uploader_id, uploader_name,
+        )
     raise HTTPException(400, f"Unknown mode {mode!r}; expected 'file', 'url' or 'text'.")
 
 
-async def _add_file(
+# --------------------------------------------------------------------------- #
+# File mode
+# --------------------------------------------------------------------------- #
+
+
+async def _queue_file(
+    background: BackgroundTasks,
     file: UploadFile | None,
     title: str | None,
     visibility: str,
     service: IngestionService,
+    tracker: IngestionStatusTracker,
     upload_dir: str,
+    user_store: UserStore,
+    uploader_id: str,
+    uploader_name: str,
 ) -> AddDocumentResponse:
     if file is None or not file.filename:
         raise HTTPException(400, "No file provided.")
@@ -139,57 +194,196 @@ async def _add_file(
     target = target_dir / _safe_filename(file.filename)
     target.write_bytes(data)
     doc_title = (title or "").strip() or target.stem
+    doc_id = service.stable_doc_id(f"upload:{visibility}/{target.name}")
 
-    if suffix in _TEXT_SUFFIXES:
-        document = ParsedDocument(
-            text=data.decode("utf-8", "replace"),
-            source=str(target),
-            format="text" if suffix == ".txt" else "markdown",
-            title=doc_title,
-            metadata={"visibility": visibility},
-        )
-        doc_id = service.stable_doc_id(f"upload:{visibility}/{target.name}")
-        result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
-    else:
-        result = service.ingest_file(target, root=upload_root, visibility=visibility)
-    return _result_response(result, title=doc_title, visibility=visibility)
+    # Record ownership for the admin table.
+    user_store.set_document_owner(doc_id, uploader_id, uploader_name)
+
+    tracker.start(doc_id, title=doc_title, visibility=visibility)
+    background.add_task(
+        _run_ingestion,
+        service=service,
+        tracker=tracker,
+        doc_id=doc_id,
+        title=doc_title,
+        visibility=visibility,
+        path=target,
+        root=upload_root,
+        is_text=suffix in _TEXT_SUFFIXES,
+        raw_text=data.decode("utf-8", "replace") if suffix in _TEXT_SUFFIXES else None,
+        fmt="text" if suffix == ".txt" else ("markdown" if suffix in _TEXT_SUFFIXES else None),
+    )
+    return AddDocumentResponse(
+        doc_id=doc_id, title=doc_title, status="processing", chunks=0, visibility=visibility
+    )
 
 
-def _add_url(url: str | None, visibility: str, service: IngestionService) -> AddDocumentResponse:
+# --------------------------------------------------------------------------- #
+# URL mode
+# --------------------------------------------------------------------------- #
+
+
+def _queue_url(
+    background: BackgroundTasks,
+    url: str | None,
+    visibility: str,
+    service: IngestionService,
+    tracker: IngestionStatusTracker,
+    user_store: UserStore,
+    uploader_id: str,
+    uploader_name: str,
+) -> AddDocumentResponse:
     clean = (url or "").strip()
     if not clean:
         raise HTTPException(400, "No URL provided.")
-    try:
-        # ``allow_local_files=False``: a submitted URL must never read a local file.
-        if is_google_sheets_url(clean):
-            document = parse_google_sheets(clean)
-        else:
-            document = parse_web(clean, allow_local_files=False)
-    except (DomainError, OSError) as exc:
-        raise HTTPException(400, f"Could not read this page: {exc}") from exc
     doc_id = service.stable_doc_id(f"url:{clean}")
-    result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
-    title = document.title or clean
-    return _result_response(result, title=title, visibility=visibility)
+    doc_title = clean
+    user_store.set_document_owner(doc_id, uploader_id, uploader_name)
+    tracker.start(doc_id, title=doc_title, visibility=visibility)
+    background.add_task(
+        _run_url_ingestion,
+        service=service,
+        tracker=tracker,
+        doc_id=doc_id,
+        visibility=visibility,
+        url=clean,
+    )
+    return AddDocumentResponse(
+        doc_id=doc_id, title=doc_title, status="processing", chunks=0, visibility=visibility
+    )
 
 
-def _add_text(
-    text: str | None, title: str | None, visibility: str, service: IngestionService
+def _run_url_ingestion(
+    *,
+    service: IngestionService,
+    tracker: IngestionStatusTracker,
+    doc_id: str,
+    visibility: str,
+    url: str,
+) -> None:
+    """Background task: fetch, parse, chunk, embed and index a URL."""
+    try:
+        if is_google_sheets_url(url):
+            document = parse_google_sheets(url)
+        else:
+            document = parse_web(url, allow_local_files=False)
+        result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
+        tracker.finish(
+            doc_id, status=str(result.status), chunks=result.chunks, error=result.error
+        )
+    except Exception as exc:
+        logger.exception("Background URL ingestion failed for %s", url)
+        tracker.finish(doc_id, status="failed", error=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+# Text mode
+# --------------------------------------------------------------------------- #
+
+
+def _queue_text(
+    background: BackgroundTasks,
+    text: str | None,
+    title: str | None,
+    visibility: str,
+    service: IngestionService,
+    tracker: IngestionStatusTracker,
+    user_store: UserStore,
+    uploader_id: str,
+    uploader_name: str,
 ) -> AddDocumentResponse:
     content = (text or "").strip()
     if not content:
         raise HTTPException(400, "Text is empty.")
     doc_title = (title or "").strip() or "Texte collé"
-    document = ParsedDocument(
-        text=content,
-        source=f"text:{doc_title}",
-        format="text",
-        title=doc_title,
-        metadata={"visibility": visibility},
-    )
     doc_id = service.stable_doc_id(f"text:{doc_title}")
-    result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
-    return _result_response(result, title=doc_title, visibility=visibility)
+    user_store.set_document_owner(doc_id, uploader_id, uploader_name)
+    tracker.start(doc_id, title=doc_title, visibility=visibility)
+    background.add_task(
+        _run_text_ingestion,
+        service=service,
+        tracker=tracker,
+        doc_id=doc_id,
+        visibility=visibility,
+        content=content,
+        doc_title=doc_title,
+    )
+    return AddDocumentResponse(
+        doc_id=doc_id, title=doc_title, status="processing", chunks=0, visibility=visibility
+    )
+
+
+def _run_text_ingestion(
+    *,
+    service: IngestionService,
+    tracker: IngestionStatusTracker,
+    doc_id: str,
+    visibility: str,
+    content: str,
+    doc_title: str,
+) -> None:
+    """Background task: parse, chunk, embed and index pasted text."""
+    try:
+        document = ParsedDocument(
+            text=content,
+            source=f"text:{doc_title}",
+            format="text",
+            title=doc_title,
+            metadata={"visibility": visibility},
+        )
+        result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
+        tracker.finish(
+            doc_id, status=str(result.status), chunks=result.chunks, error=result.error
+        )
+    except Exception as exc:
+        logger.exception("Background text ingestion failed for %s", doc_title)
+        tracker.finish(doc_id, status="failed", error=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+# Shared background worker
+# --------------------------------------------------------------------------- #
+
+
+def _run_ingestion(
+    *,
+    service: IngestionService,
+    tracker: IngestionStatusTracker,
+    doc_id: str,
+    title: str,
+    visibility: str,
+    path: Path,
+    root: Path,
+    is_text: bool,
+    raw_text: str | None,
+    fmt: str | None,
+) -> None:
+    """Background task: parse, chunk, embed and index a saved file."""
+    try:
+        if is_text and raw_text is not None:
+            document = ParsedDocument(
+                text=raw_text,
+                source=str(path),
+                format=fmt or "text",
+                title=title,
+                metadata={"visibility": visibility},
+            )
+            result = service.ingest_parsed_document(
+                document, doc_id=doc_id, visibility=visibility
+            )
+        else:
+            result = service.ingest_file(path, root=root, visibility=visibility)
+        tracker.finish(
+            doc_id, status=str(result.status), chunks=result.chunks, error=result.error
+        )
+    except Exception as exc:
+        logger.exception("Background ingestion failed for %s", path)
+        tracker.finish(doc_id, status="failed", error=str(exc))
+
+
+# --------------------------------------------------------------------------- #
+# Delete
+# --------------------------------------------------------------------------- #
 
 
 @router.delete("/{doc_id}", response_model=DeleteDocumentResponse)
@@ -197,6 +391,7 @@ def delete_document(
     doc_id: str,
     store: Annotated[ChromaStore, Depends(get_store)],
     lexical: Annotated[BM25Index, Depends(get_lexical_index)],
+    user_store: Annotated[UserStore, Depends(get_user_store)],
 ) -> DeleteDocumentResponse:
     """Remove every chunk of *doc_id* from both indexes."""
     removed = store.delete_document(doc_id)
@@ -205,6 +400,6 @@ def delete_document(
     try:
         lexical.delete_document(doc_id)
     except (DomainError, OSError) as exc:
-        # The vector store is the source of truth; rebuild BM25 if it drifts.
         logger.warning("Lexical index not cleaned for %s: %s", doc_id, exc)
+    user_store.delete_document_owner(doc_id)
     return DeleteDocumentResponse(doc_id=doc_id, chunks_deleted=removed)

@@ -20,15 +20,23 @@ _WORD_RE = re.compile(r"[a-zà-ÿœ]+", re.IGNORECASE)
 _FRENCH_ACCENTS = frozenset("àâçéèêëîïôùûüÿœ")
 
 _FRENCH_WORDS = frozenset(
-    "le la les un une des du de et est quand comment où ou qui que quoi pourquoi "
+    "le la les un une des du de est et quand comment où ou qui que quoi pourquoi "
     "quel quelle quels quelles je tu il elle nous vous ils pour dans sur avec "
-    "c'est qu'est ce cette ces mon ma mes votre est-ce peut puis-je salut bonjour".split()
+    "c'est qu'est ce cette ces mon ma mes votre est-ce peut puis-je salut bonjour "
+    "merci membres droit droits étudiant étudiants inscription scolarité".split()
 )
 _ENGLISH_WORDS = frozenset(
     "the a an is are was were and or how when where what who why which can could "
     "do does i you we they it for in on with to of my your our this that there "
-    "hello hi next join".split()
+    "hello hi next join student students member members rights".split()
 )
+
+# Human-readable names used in the LLM prompt.
+_LANGUAGE_NAMES: dict[str, str] = {
+    "ar": "Arabic",
+    "fr": "French",
+    "en": "English",
+}
 
 _REFUSALS: dict[str, str] = {
     "fr": (
@@ -68,6 +76,11 @@ def detect_language(text: str) -> str:
     if french == english:
         return DEFAULT_LANGUAGE
     return "fr" if french > english else "en"
+
+
+def language_name(code: str) -> str:
+    """Human-readable language name for *code* (used in LLM prompts)."""
+    return _LANGUAGE_NAMES.get(code, _LANGUAGE_NAMES[DEFAULT_LANGUAGE])
 
 
 def refusal_message(language: str) -> str:

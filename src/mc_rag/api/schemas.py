@@ -57,6 +57,7 @@ class DocumentOut(BaseModel):
     visibility: str
     chunks: int
     embedding_model: str
+    uploaded_by: str | None = None
 
 
 class DocumentsResponse(BaseModel):
@@ -66,9 +67,18 @@ class DocumentsResponse(BaseModel):
 class AddDocumentResponse(BaseModel):
     doc_id: str
     title: str
-    status: str
+    status: str  # processing | indexed | updated | unchanged | failed
     chunks: int
     visibility: str
+
+
+class DocumentStatusResponse(BaseModel):
+    doc_id: str
+    title: str
+    status: str
+    chunks: int
+    error: str | None = None
+    elapsed_ms: int
 
 
 class DeleteDocumentResponse(BaseModel):
@@ -82,6 +92,13 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     ok: bool
+
+
+class MeResponse(BaseModel):
+    role: str
+    display_name: str | None = None
+    avatar: str | None = None
+    user_id: str | None = None
 
 
 class FeedbackRequest(BaseModel):

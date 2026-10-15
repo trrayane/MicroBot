@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -21,12 +23,20 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Load the embedding model once at startup so the first request is fast."""
-    try:
-        get_embedder().embed_query("warm up")
-        logger.info("Embedding model ready.")
-    except Exception:  # noqa: BLE001 - the app can still start; requests will report it
-        logger.exception("Embedding model warm-up failed.")
+    """Load the embedding model once at startup so the first request is fast.
+
+    The warm-up runs in a thread so uvicorn can still serve requests
+    (Discord OAuth callback, health, …) while the model loads.
+    """
+
+    def _warm_up() -> None:
+        try:
+            get_embedder().embed_query("warm up")
+            logger.info("Embedding model ready.")
+        except Exception:  # noqa: BLE001 - the app can still start; requests will report it
+            logger.exception("Embedding model warm-up failed.")
+
+    asyncio.get_running_loop().run_in_executor(None, _warm_up)
     yield
 
 
@@ -43,6 +53,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Stash the shared httpx client for the Discord OAuth client.
+    app.state.http = httpx.AsyncClient(timeout=8.0)
+
     app.include_router(api_router)
     register_error_handlers(app)
 

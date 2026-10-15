@@ -18,8 +18,10 @@ from mc_rag.domain.exceptions import (
     AuthenticationError,
     ConversationNotFoundError,
     EmbeddingError,
+    InvalidInput,
     LLMRateLimitError,
     LLMUnavailableError,
+    UpstreamUnavailable,
     VectorStoreError,
 )
 
@@ -29,6 +31,8 @@ logger = logging.getLogger(__name__)
 _DOMAIN_ERRORS: list[tuple[type[Exception], int, str, str | None]] = [
     (AuthenticationError, 401, "unauthorized", None),
     (ConversationNotFoundError, 404, "conversation_not_found", None),
+    (InvalidInput, 422, "invalid_input", None),
+    (UpstreamUnavailable, 503, "upstream_unavailable", "An external service is unavailable."),
     (
         LLMRateLimitError,
         429,

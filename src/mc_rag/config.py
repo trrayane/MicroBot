@@ -64,9 +64,15 @@ class Settings(BaseSettings):
     # --- Discord OAuth / membership ----------------------------------------
     discord_client_id: str | None = None
     discord_client_secret: str | None = None
-    discord_redirect_uri: str = "http://localhost:8000/api/auth/discord/callback"
+    discord_redirect_uri: str = "http://localhost:8000/api/v1/auth/discord/callback"
     discord_guild_id: str | None = None
     discord_bot_token: str | None = None
+    # Role required to be considered a member ("" = just being in the guild).
+    discord_member_role_id: str = ""
+    # Comma-separated Discord role IDs that grant admin access.
+    discord_admin_role_ids: str = ""
+    # Comma-separated Discord user IDs that are always admin (no bot needed).
+    discord_admin_user_ids: str = ""
 
     # --- Auth / security ---------------------------------------------------
     jwt_secret_key: str = "change-me"
@@ -76,8 +82,25 @@ class Settings(BaseSettings):
     admin_api_key: str | None = None
     conversation_db_path: str = "./storage/conversations.db"
     feedback_db_path: str = "./storage/feedback.db"
+    users_db_path: str = "./storage/users.db"
     upload_dir: str = "./data/uploads"
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
+    frontend_url: str = "http://localhost:8000"
+    cookie_secure: bool = False
+
+    @property
+    def admin_role_ids(self) -> frozenset[str]:
+        """Discord role IDs that grant admin access."""
+        return frozenset(
+            r.strip() for r in self.discord_admin_role_ids.split(",") if r.strip()
+        )
+
+    @property
+    def admin_user_ids(self) -> frozenset[str]:
+        """Discord user IDs that are always admin (bypasses guild/role checks)."""
+        return frozenset(
+            u.strip() for u in self.discord_admin_user_ids.split(",") if u.strip()
+        )
 
     # --- Ingestion / RAG tuning --------------------------------------------
     raw_data_dir: str = "./data/raw"

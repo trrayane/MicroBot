@@ -25,11 +25,12 @@ from mc_rag.rag.grounding import (
     DEFAULT_LANGUAGE,
     NO_ANSWER_MARKER,
     detect_language,
+    language_name,
     parse_model_answer,
     refusal_message,
 )
 from mc_rag.rag.pipeline import RagPipeline
-from mc_rag.rag.prompts import SYSTEM_PROMPT, build_messages, question_language
+from mc_rag.rag.prompts import build_messages
 from mc_rag.rag.retrieval import RetrievalResult, Retriever, build_search_query
 
 # ==========================================================================================
@@ -126,11 +127,12 @@ def test_message_structure(make_hit):
     assert "Comment rejoindre ?" in messages[-1]["content"]
 
 
-def test_system_prompt_states_the_rules():
-    lowered = SYSTEM_PROMPT.lower()
-    assert NO_ANSWER_MARKER in SYSTEM_PROMPT
-    assert "same language" in lowered
-    assert "data" in lowered and "instructions" in lowered
+def test_system_prompt_states_the_rules(make_hit):
+    messages = build_messages("Comment rejoindre ?", [make_hit()], [])
+    system = messages[0]["content"]
+    assert NO_ANSWER_MARKER in system
+    assert "respond entirely in" in system.lower()
+    assert "data" in system.lower() and "instructions" in system.lower()
 
 
 def test_sources_are_numbered_in_order(make_hit):
@@ -147,14 +149,16 @@ def test_question_comes_after_sources(make_hit):
 
 def test_language_directive_matches_the_question(make_hit):
     cases = {
-        "Quels sont les droits des membres ?": "French",
-        "ما هي حقوق الأعضاء؟": "Arabic",
-        "What are the member rights?": "English",
+        "Quels sont les droits des membres ?": ("French", "fr"),
+        "ما هي حقوق الأعضاء؟": ("Arabic", "ar"),
+        "What are the member rights?": ("English", "en"),
     }
-    for question, expected in cases.items():
-        content = build_messages(question, [make_hit()], [])[-1]["content"]
-        assert question_language(question) == expected
-        assert f"Respond in {expected} (the language of the question above)." in content
+    for question, (name, code) in cases.items():
+        messages = build_messages(question, [make_hit()], [])
+        system = messages[0]["content"]
+        assert f"respond entirely in {name.lower()}" in system.lower()
+        assert detect_language(question) == code
+        assert language_name(detect_language(question)) == name
 
 
 def test_chunk_cannot_close_the_sources_block(make_hit):
