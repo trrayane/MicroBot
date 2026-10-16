@@ -41,6 +41,11 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     )
+    # Comma-separated list of Gemini keys cycled by the roulette (429 → next key).
+    gemini_api_keys: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_API_KEYS", "GOOGLE_API_KEYS"),
+    )
     gemini_model: str = "gemini-3.5-flash-lite"
 
     # --- Embeddings (local) ------------------------------------------------
@@ -193,6 +198,19 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         """Return ``cors_origins`` split into individual origins."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def gemini_key_list(self) -> list[str]:
+        """Return every configured Gemini key: the ``GEMINI_API_KEYS`` roulette
+        pool first, then the single ``GEMINI_API_KEY`` (deduplicated, order kept)."""
+        keys: list[str] = []
+        for part in self.gemini_api_keys.split(","):
+            key = part.strip()
+            if key and key not in keys:
+                keys.append(key)
+        if self.gemini_api_key and self.gemini_api_key not in keys:
+            keys.append(self.gemini_api_key)
+        return keys
 
 
 @lru_cache(maxsize=1)

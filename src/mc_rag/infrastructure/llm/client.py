@@ -20,11 +20,13 @@ def _masked_key(key: str | None) -> str:
 def log_llm_configuration() -> None:
     """Log the selected provider and masked key identity at process startup."""
     settings = get_settings()
-    if settings.gemini_api_key:
+    gemini_keys = settings.gemini_key_list
+    if gemini_keys:
         logger.info(
-            "LLM provider=Google Gemini key_variable=GEMINI_API_KEY "
-            "(GOOGLE_API_KEY alias supported) key=%s model=%s",
-            _masked_key(settings.gemini_api_key),
+            "LLM provider=Google Gemini key_variable=GEMINI_API_KEYS "
+            "(GEMINI_API_KEY/GOOGLE_API_KEY also read) pool=%s (%d key(s), roulette on 429) model=%s",
+            ",".join(_masked_key(key) for key in gemini_keys),
+            len(gemini_keys),
             settings.gemini_model,
         )
     elif settings.openrouter_api_key:
@@ -40,9 +42,11 @@ def log_llm_configuration() -> None:
 def get_llm_client() -> GeminiClient | OpenRouterClient:
     """Return the LLM client matching the configured API keys.
 
-    A ``GEMINI_API_KEY`` takes precedence; otherwise fall back to OpenRouter.
+    Any Gemini key (``GEMINI_API_KEYS`` roulette pool and/or the single
+    ``GEMINI_API_KEY``) selects Gemini; otherwise fall back to OpenRouter.
     """
     settings = get_settings()
-    if settings.gemini_api_key:
-        return GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model)
+    gemini_keys = settings.gemini_key_list
+    if gemini_keys:
+        return GeminiClient(api_keys=gemini_keys, model=settings.gemini_model)
     return get_openrouter_client()

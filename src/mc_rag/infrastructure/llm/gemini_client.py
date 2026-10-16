@@ -3,50 +3,120 @@
 Talks directly to ``generativelanguage.googleapis.com`` with a Google AI API key
 (``AIza...``). Implements the same :meth:`complete` surface as the OpenRouter
 client so :class:`mc_rag.rag.pipeline.RagPipeline` is untouched.
+
+When several keys are configured (``GEMINI_API_KEYS`` comma-separated list,
+plus the single ``GEMINI_API_KEY``), the client runs a **key roulette**: a key
+that returns 429 (quota exhausted) is put on cooldown and the request is
+retried on the next key of the pool until one succeeds or every key is
+cooling down.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 from typing import Any
 
 import httpx
 
 from mc_rag.domain.exceptions import LLMRateLimitError, LLMUnavailableError
+from mc_rag.infrastructure.llm.api_key_pool import ApiKeyPool
 from mc_rag.infrastructure.llm.openrouter_client import LLMResponse
 
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _DEFAULT_TIMEOUT = 45.0
+_DEFAULT_COOLDOWN_SECONDS = 600.0
+_RETRY_DELAY_RE = re.compile(r"(\d+(?:\.\d+)?)\s*s")
 
 
 class GeminiClient:
     """Minimal synchronous client for the ``models/{model}:generateContent`` API."""
 
     def __init__(
-        self, *, api_key: str | None, model: str, timeout: float = _DEFAULT_TIMEOUT
+        self,
+        *,
+        api_key: str | None = None,
+        api_keys: Sequence[str] | None = None,
+        model: str,
+        timeout: float = _DEFAULT_TIMEOUT,
+        cooldown_seconds: float = _DEFAULT_COOLDOWN_SECONDS,
     ) -> None:
-        self._api_key = api_key
+        keys = [key for key in (api_keys or []) if key]
+        if api_key:
+            keys.insert(0, api_key)
+        self._pool = ApiKeyPool(keys, cooldown_seconds=cooldown_seconds)
         self.model = model
         self._timeout = timeout
 
+    @property
+    def pool(self) -> ApiKeyPool:
+        """The key roulette backing this client."""
+        return self._pool
+
     def complete(self, messages: Sequence[dict[str, str]]) -> LLMResponse:
-        """Send *messages* to Gemini and return the reply with token usage."""
-        if not self._api_key:
+        """Send *messages* to Gemini and return the reply with token usage.
+
+        On a 429 the current key is cooled down (honouring the API's
+        ``retryDelay`` when present) and the call is retried on the next
+        key of the pool.
+        """
+        if self._pool.size == 0:
             raise LLMUnavailableError("LLM is not configured (missing Gemini API key).")
 
+        last_rate_limit: LLMRateLimitError | None = None
+        for _ in range(self._pool.size):
+            key = self._pool.get()
+            if key is None:
+                break
+            try:
+                response = self._post(messages, key)
+                return self._parse(response, key)
+            except LLMRateLimitError as exc:
+                last_rate_limit = exc
+                self._pool.penalize(key, getattr(exc, "retry_delay", None))
+                logger.warning(
+                    "Gemini key %s hit its quota (%s) — cooled down %.0fs, %d key(s) left",
+                    f"{key[:6]}****" if len(key) >= 6 else "****",
+                    exc,
+                    getattr(exc, "retry_delay", None) or self._pool.cooldown_seconds,
+                    max(self._pool.available(), 0),
+                )
+        if last_rate_limit is not None:
+            raise last_rate_limit
+        raise LLMRateLimitError("All Gemini API keys are rate-limited; retry later.")
+
+    def _post(self, messages: Sequence[dict[str, str]], api_key: str) -> httpx.Response:
         payload = self._payload(messages)
         url = f"{_BASE_URL}/models/{self.model}:generateContent"
-        headers = {"Content-Type": "application/json", "x-goog-api-key": self._api_key}
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
         try:
-            response = httpx.post(url, json=payload, headers=headers, timeout=self._timeout)
+            return httpx.post(url, json=payload, headers=headers, timeout=self._timeout)
         except httpx.TimeoutException:
             raise LLMUnavailableError("LLM unavailable (timeout).") from None
         except httpx.TransportError:
             raise LLMUnavailableError("LLM unavailable (network error).") from None
-        return self._parse(response)
+
+    @staticmethod
+    def _retry_delay(error: object) -> float | None:
+        """Extract the API's ``retryDelay`` (seconds) from a 429 error body."""
+        if not isinstance(error, dict):
+            return None
+        details = error.get("details")
+        candidates: list[object] = list(details) if isinstance(details, list) else [details]
+        candidates.append(error)
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("retryDelay")
+            if raw is None:
+                continue
+            match = _RETRY_DELAY_RE.search(str(raw))
+            if match:
+                return max(float(match.group(1)), 1.0)
+        return None
 
     @staticmethod
     def _payload(messages: Sequence[dict[str, str]]) -> dict[str, Any]:
@@ -82,10 +152,11 @@ class GeminiClient:
             payload["system_instruction"] = {"parts": system_parts}
         return payload
 
-    def _parse(self, response: httpx.Response) -> LLMResponse:
+    def _parse(self, response: httpx.Response, api_key: str | None = None) -> LLMResponse:
         response_body = response.text
-        if self._api_key:
-            response_body = response_body.replace(self._api_key, "[REDACTED]")
+        secrets = {key for key in [api_key] if key} | set(self._pool.raw_keys())
+        for secret in secrets:
+            response_body = response_body.replace(secret, "[REDACTED]")
         try:
             body = response.json()
         except ValueError as exc:
@@ -116,7 +187,9 @@ class GeminiClient:
                 else f"HTTP {response.status_code}"
             )
             if response.status_code == 429:
-                raise LLMRateLimitError(f"Gemini API rate limit/quota (429): {message}")
+                exc = LLMRateLimitError(f"Gemini API rate limit/quota (429): {message}")
+                exc.retry_delay = self._retry_delay(error)
+                raise exc
             raise LLMUnavailableError(f"LLM request rejected ({message}).")
 
         try:
