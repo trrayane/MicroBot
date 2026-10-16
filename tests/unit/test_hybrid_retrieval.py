@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from mc_rag.config import get_settings
+from mc_rag.config import Settings
 from mc_rag.infrastructure.lexical_store.bm25_index import IndexEntry, LexicalHit
 from mc_rag.infrastructure.vector_store.chroma_store import (
     ALL_VISIBILITIES,
@@ -105,6 +105,7 @@ def retriever(
         top_k=top_k,
         min_score=min_score,
         hybrid_enabled=hybrid,
+        rerank_enabled=False,
         hybrid_bm25_min_score=bm25_min,
         hybrid_candidate_pool=pool,
         hybrid_require_both=require_both,
@@ -116,8 +117,9 @@ def retriever(
 # --------------------------------------------------------------------------- #
 
 
-def test_hybrid_is_disabled_by_default() -> None:
-    assert get_settings().hybrid_enabled is False
+def test_hybrid_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HYBRID_ENABLED", raising=False)
+    assert Settings(_env_file=None).hybrid_enabled is True
 
 
 def test_disabled_mode_never_queries_the_lexical_index() -> None:

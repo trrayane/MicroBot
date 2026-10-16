@@ -11,7 +11,7 @@ It does three things:
    filter is applied **inside** each index (Chroma ``where`` clause, SQL
    ``WHERE``), never in the prompt.
 
-Two modes, selected by ``HYBRID_ENABLED`` (default ``false`` = legacy):
+Two modes, selected by ``HYBRID_ENABLED`` (default ``true``):
 
 * **vector only** - Chroma cosine scores, keep ``score >= threshold``;
 * **hybrid** - Chroma *and* SQLite FTS5 (BM25) candidates fused with RRF, then

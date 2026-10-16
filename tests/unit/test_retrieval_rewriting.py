@@ -137,6 +137,7 @@ def retriever(
         top_k=top_k,
         min_score=min_score,
         hybrid_enabled=hybrid,
+        rerank_enabled=False,
     )
 
 

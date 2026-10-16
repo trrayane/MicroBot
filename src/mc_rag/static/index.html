@@ -75,6 +75,18 @@ button,input,select{font:inherit;color:inherit}
 .skel{background:var(--muted);border-radius:9999px;animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite}.skel.rect{border-radius:6px}@keyframes pulse{50%{opacity:.5}}
 #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:50}
 .toast{background:var(--primary);color:var(--primary-foreground);padding:12px 20px;border-radius:9999px;box-shadow:var(--sh);font-weight:700;max-width:360px}
+#ingestionJobs{position:fixed;right:20px;bottom:88px;z-index:45;display:flex;flex-direction:column;gap:8px;width:min(440px,calc(100vw - 40px));max-height:42vh;overflow:auto}
+#ingestionJobs[hidden]{display:none}
+.ingestion-job{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--sh)}
+.ingestion-job.failed{border-color:var(--destructive)}
+.ingestion-job-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:5px}
+.ingestion-job-head strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.ingestion-job-pct{flex:none;font:600 12px 'Azeret Mono',monospace;color:var(--muted-foreground)}
+.ingestion-job-stage{margin-bottom:8px;font-size:12px;color:var(--muted-foreground)}
+.ingestion-progress{height:7px;overflow:hidden;border-radius:99px;background:var(--secondary)}
+.ingestion-progress>div{height:100%;border-radius:inherit;background:var(--primary);transition:width .35s ease}
+.ingestion-job.failed .ingestion-progress>div{background:var(--destructive)}
+.toast.error{background:var(--destructive);color:var(--destructive-fg)}
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:40}.ov[hidden]{display:none}
 .dlg{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:420px;width:92%;box-shadow:var(--sh)}
 .hid{display:none!important}
@@ -207,6 +219,7 @@ button,input,select{font:inherit;color:inherit}
  .tabs{max-width:100%;overflow-x:auto}
  #pGate{margin-top:8vh!important}#pGate .plogo{height:88px}
  #toasts{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}.toast{max-width:none;text-align:center}
+ #ingestionJobs{left:12px;right:12px;bottom:calc(78px + env(safe-area-inset-bottom));width:auto;max-height:35vh}
 }
 @media(max-width:380px){.grid4{grid-template-columns:1fr}.cs .comp .btn{padding:0 14px}}
 
@@ -357,6 +370,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
     <div class="search"><input type="text" id="sideSearch" placeholder="Rechercher…" aria-label="Rechercher dans l'historique" autocomplete="off" oninput="drawHist()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
     <nav>
       <button class="item new" type="button" onclick="newChat()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg><p>Nouveau chat</p></button>
+      <button class="item" type="button" data-pubmode onclick="location.hash='#/account'"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><p>Compte Discord</p></button>
       <div class="navgrp" data-adm hidden>
         <button class="item" type="button" data-go="chat" onclick="setView('chat')"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><p>Chatbot</p></button>
         <button class="item" type="button" data-go="dash" onclick="setView('dash')"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><p>Tableau de bord</p></button>
@@ -393,6 +407,10 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
     <section class="page hid" id="pDash">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1">Tableau de <span class="hl">bord</span></h1><p class="ds">Vue d'ensemble de la base de connaissances et du quota du jour.</p></div></div><span class="bd ok" id="health">Statut : ok</span></div>
       <div class="grid4" id="stats"></div>
+      <div class="dtc" data-slot="repetitive-questions">
+        <div class="dth"><div><div class="dthr"><h3>Questions récurrentes</h3><span class="dtb" id="repetitiveCount">0</span></div><p>Les sujets les plus demandés et les réponses à améliorer.</p></div></div>
+        <div class="dtscroll"><table class="dt"><thead><tr><th>Question / sujet</th><th>Demandes</th><th>Non utile</th><th></th></tr></thead><tbody id="repetitiveRows"><tr><td colspan="4" class="ds">Chargement...</td></tr></tbody></table></div>
+      </div>
     </section>
     <section class="page hid" id="pDocs">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1"><span class="hl">Documents</span></h1><p class="ds">Ajoutez, listez ou supprimez les documents connus du bot. Les changements sont en direct.</p></div></div></div>
@@ -438,17 +456,33 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
       <div class="ph"><div class="phl"><div><h1 class="hd ph1"><span class="hl">Feedback</span> reçu</h1><p class="ds">Les retours « Utile » et « Pas utile » laissés dans le chat.</p></div></div></div>
       <div class="card"><div id="fb" style="display:flex;flex-direction:column;gap:10px"></div></div>
     </section>
+    <section class="page hid" id="pAccount">
+      <div class="ph"><div class="phl"><div><h1 class="hd ph1">Compte <span class="hl">Discord</span></h1><p class="ds">Connecte-toi avec Discord pour vérifier ton appartenance au serveur de Micro Club et débloquer les contenus réservés aux membres.</p></div></div></div>
+      <div class="card" style="display:flex;flex-direction:column;gap:16px;max-width:520px">
+        <div id="discordSignedOut" style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:12px"><span class="dico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 9.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm7 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/><path d="M15.5 6.5c1.6.3 3 .9 4.2 1.7.9 1.6 1.6 3.6 1.6 6.2-1.2 1.5-2.9 2.4-4.6 2.8l-.9-1.4m-7.7 0-.9 1.4c-1.7-.4-3.4-1.3-4.6-2.8 0-2.6.7-4.6 1.6-6.2C5.1 7.4 6.5 6.8 8.1 6.5m0 0L9 4.5c1.8-.4 4.2-.4 6 0l.9 2m-8.4.5c1.6-.5 3.4-.7 5.2-.5 1.8.2 3.4.8 4.7 1.6"/></svg></span><div><h3>Connexion avec Discord</h3><p class="ds">Seuls ton identifiant et ton statut de membre sont utilisés.</p></div></div>
+          <button class="btn p" type="button" onclick="discordSignIn()">Sign in with Discord</button>
+        </div>
+        <div id="discordSignedIn" hidden style="display:flex;flex-direction:column;gap:12px">
+          <h3>Bienvenue, <span id="duName">…</span></h3>
+          <span class="bd s" id="duBadge">…</span>
+          <button class="btn ds" type="button" onclick="discordSignOut()">Se déconnecter</button>
+        </div>
+        <div id="discordError" class="aerr" role="alert" hidden></div>
+      </div>
+    </section>
   </div>
 </div>
 <div class="ov" id="ov" hidden><div class="dlg" role="alertdialog" aria-labelledby="dt"><h3 id="dt" style="margin-bottom:8px">Supprimer ce document ?</h3><p class="ds" id="dd" style="font-size:14px;margin-bottom:18px"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn s" onclick="$('ov').hidden=true">Annuler</button><button class="btn d" id="dOk">Supprimer</button></div></div></div>
+<aside id="ingestionJobs" aria-label="Suivi des documents importés" aria-live="polite" hidden></aside>
 <div id="toasts" role="status"></div>
 <script>
 /* Utilitaires UI partagés : sélecteur, échappement HTML, toasts, thème */
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-function toast(m) {
+function toast(m, kind) {
   const t = document.createElement('div');
-  t.className = 'toast'; t.textContent = m;
+  t.className = 'toast' + (kind === 'error' ? ' error' : ''); t.textContent = m;
   $('toasts').appendChild(t); setTimeout(() => t.remove(), 3200);
 }
 function applyTheme(t) {
@@ -798,8 +832,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(
 addEventListener('resize', () => { if (innerWidth > 860) closeDrawer(); });
 /* Routage + vues : #/ = chat public ; #/admin = connexion puis chat + administration dans la même sidebar */
 let adminOk = false, mode = 'public', view = 'chat', lastAdm = 'dash';
-const VIEWS = { chat: 'pChat', gate: 'pGate', dash: 'pDash', docs: 'pDocs', fb: 'pFb' };
-const TITLES = { chat: 'MicroBot', gate: 'MicroBot · Connexion', dash: 'MicroBot · Tableau de bord', docs: 'MicroBot · Documents', fb: 'MicroBot · Feedback' };
+const VIEWS = { chat: 'pChat', gate: 'pGate', dash: 'pDash', docs: 'pDocs', fb: 'pFb', account: 'pAccount' };
+const TITLES = { chat: 'MicroBot', gate: 'MicroBot · Connexion', dash: 'MicroBot · Tableau de bord', docs: 'MicroBot · Documents', fb: 'MicroBot · Feedback', account: 'MicroBot · Compte Discord' };
 function setView(v) {
   closeDrawer();
   if (v !== 'chat' && v !== 'gate') lastAdm = v;
@@ -811,7 +845,7 @@ function setView(v) {
   document.querySelectorAll('[data-pubmode]').forEach(e => e.hidden = mode !== 'public');
   $('role').textContent = adminOk ? 'Administrateur' : mode === 'admin' ? 'Connexion' : 'Accès public';
   document.title = TITLES[v];
-  $('mstat').textContent = { chat: adminOk ? 'Mode admin' : 'En ligne', gate: 'Connexion', dash: 'Tableau de bord', docs: 'Documents', fb: 'Feedback' }[v];
+  $('mstat').textContent = { chat: adminOk ? 'Mode admin' : 'En ligne', gate: 'Connexion', dash: 'Tableau de bord', docs: 'Documents', fb: 'Feedback', account: 'Compte Discord' }[v];
   $('acts').style.setProperty('--n', document.querySelectorAll('#acts .action:not([hidden])').length);
   if (adminOk && v !== 'chat') draw();
   drawHist();
@@ -822,6 +856,7 @@ function route() {
   adminOk = mode === 'admin' && unlocked();
   member = adminOk;                       // l'admin voit aussi les documents « members »
   if (member !== prev) welcome();         // on repart d'un chat vide quand l'accès change
+  if (location.hash === '#/account') { setView('account'); return; }
   setView(mode === 'public' ? 'chat' : adminOk ? lastAdm : 'gate');
   if (!ME && tokenGet()) loadMe().catch(() => {});
 }
@@ -831,7 +866,7 @@ addEventListener('hashchange', route); document.addEventListener('DOMContentLoad
 /* ===== Câblage réel sur le backend FastAPI (/api/v1/*) =====
    La page est servie par le même serveur que l'API : chemins relatifs, pas de CORS.
    On remplace la couche démo localStorage par des appels réseau. */
-const API = { docs: [], fbs: [] };
+const API = { docs: [], fbs: [], repetitive: [] };
 
 /* --- Auth: JWT (Discord) ou clé admin (X-Admin-Key) --- */
 function tokenGet() { try { return sessionStorage.getItem('mc_token') || ''; } catch (e) { return ''; } }
@@ -907,12 +942,14 @@ MC.chunks = d => d.chunks || 0;
 async function loadAdminData() {
   const headers = authHeaders();
   await loadMe();
-  const [docs, fbs] = await Promise.all([
+  const [docs, fbs, repetitive] = await Promise.all([
     api('/api/v1/documents', { headers }),
-    api('/api/v1/feedback?limit=200', { headers })
+    api('/api/v1/feedback?limit=200', { headers }),
+    api('/api/v1/admin/repetitive-questions?min_frequency=10', { headers })
   ]);
   API.docs = (docs.documents || []).map(mapDoc);
   API.fbs = (fbs.feedback || []).map(f => ({ v: f.vote, cid: f.conversation_id || '—', at: new Date(f.created_at * 1000).toLocaleString('fr-FR') }));
+  API.repetitive = repetitive.questions || [];
   draw();
 }
 
@@ -988,6 +1025,7 @@ ask = async function (q) {
       body: JSON.stringify({ message: q, conversation_id: cid })
     });
     cid = body.conversation_id;
+    $(id).dataset.queryLogId = body.query_log_id || '';
     const lat = Math.round(performance.now() - t0);
     const L = MC.lang(q), sources = body.sources || [], ok = body.grounded && sources.length > 0;
     const u = body.usage || {}, toks = (u.prompt_tokens || 0) + (u.completion_tokens || 0);
@@ -1017,7 +1055,8 @@ ask = async function (q) {
 rate = async function (v, b) {
   b.parentNode.querySelectorAll('button').forEach(x => x.disabled = true);
   try {
-    await api('/api/v1/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation_id: cid, vote: v }) });
+    const queryLogId = Number(b.closest('.m').dataset.queryLogId);
+    await api('/api/v1/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation_id: cid, query_log_id: queryLogId || null, vote: v }) });
     toast('Merci pour votre retour.');
   } catch (e) { toast('Feedback non enregistré.'); }
   saveCur();
@@ -1055,47 +1094,154 @@ addDoc = async function () {
     if (!title) return toast('Donne un titre à ce texte.');
     fd.append('mode', 'text'); fd.append('text', text); fd.append('title', title);
   }
+  const clientJobId = 'upload-' + Date.now();
+  const sourceType = srcMode;
+  const uploadFile = sourceType === 'file' ? $('file').files[0] : null;
+  const uploadTitle = title || (uploadFile ? uploadFile.name : sourceType === 'url' ? $('url').value : 'Document');
+  upsertIngestionJob({ id: clientJobId, title: uploadTitle, sourceType, fileName: uploadFile ? uploadFile.name : '', status: 'uploading', stage: 'uploading', progress: 0, chunksDone: 0, chunksTotal: 0 });
+  renderIngestionJobs();
   setBusy(true, 'Envoi…');
   try {
     const out = await api('/api/v1/documents', { method: 'POST', headers: authHeaders(), body: fd });
     toast('Envoyé : ' + out.doc_id + ' — indexation en cours…');
     resetAdd();
-    /* Poll le statut d'indexation en arrière-plan */
+    INGESTION_JOBS.delete(clientJobId);
+    upsertIngestionJob({ id: out.doc_id, title: out.title, sourceType, fileName: uploadFile ? uploadFile.name : '', status: 'processing', stage: 'queued', progress: 2, chunksDone: 0, chunksTotal: 0 });
+    persistIngestionJobs();
+    renderIngestionJobs();
     _pollIngestion(out.doc_id);
   } catch (e) {
-    if (srcMode === 'url') urlErr(e.message || 'Impossible de lire cette page.', true); else toast('Échec : ' + e.message);
+    removeIngestionJob(clientJobId);
+    const message = e.message || 'Impossible de téléverser le document.';
+    if (sourceType === 'url') urlErr(message, true);
+    toast('Échec du téléversement : ' + message, 'error');
   } finally { setBusy(false); }
 };
 
-/* Poll le statut d'ingestion jusqu'à un état terminal */
+/* Global ingestion manager: polling and progress survive admin-view navigation. */
+const INGESTION_STORAGE_KEY = 'mc_ingestion_jobs';
+const INGESTION_JOBS = new Map();
+const POLLING_INGESTIONS = new Set();
+const INGESTION_TIMEOUT_MS = 15 * 60 * 1000;
+
+function upsertIngestionJob(job) {
+  INGESTION_JOBS.set(job.id, { ...(INGESTION_JOBS.get(job.id) || {}), ...job });
+}
+function persistIngestionJobs() {
+  try {
+    const active = [...INGESTION_JOBS.values()].filter(job => job.status === 'processing' && !job.id.startsWith('upload-'));
+    sessionStorage.setItem(INGESTION_STORAGE_KEY, JSON.stringify(active));
+  } catch (e) {}
+}
+function removeIngestionJob(id) {
+  INGESTION_JOBS.delete(id);
+  persistIngestionJobs();
+  renderIngestionJobs();
+}
+function ingestionPercent(status) {
+  const done = Math.max(0, Number(status.chunks_done) || 0);
+  const total = Math.max(0, Number(status.chunks_total) || 0);
+  if (['indexed', 'updated', 'unchanged'].includes(status.status)) return 100;
+  if (status.stage === 'indexing') return 95;
+  if (status.stage === 'embedding') return 20 + Math.floor(70 * (total ? Math.min(done / total, 1) : 0));
+  if (status.stage === 'chunking') return 18;
+  if (status.stage === 'parsing') return 8;
+  return 2;
+}
+function ingestionStageText(job) {
+  if (job.status === 'uploading') return 'Uploading…';
+  if (job.status === 'indexed' || job.status === 'updated' || job.status === 'unchanged') return 'Complete';
+  if (job.status === 'failed' || job.status === 'timeout') return job.error || 'Processing failed';
+  if (job.stage === 'parsing') {
+    if (job.sourceType === 'url') return 'Parsing web page…';
+    if (job.sourceType === 'text') return 'Parsing text…';
+    const extension = (job.fileName || '').split('.').pop().toUpperCase();
+    return 'Parsing ' + (extension || 'document') + '…';
+  }
+  if (job.stage === 'chunking') return 'Splitting document into chunks…';
+  if (job.stage === 'embedding') return 'Embedding chunks (' + job.chunksDone + '/' + job.chunksTotal + ')…';
+  if (job.stage === 'indexing') return 'Writing chunks to the index…';
+  return 'Queued for processing…';
+}
+function renderIngestionJobs() {
+  const panel = $('ingestionJobs');
+  const jobs = [...INGESTION_JOBS.values()];
+  panel.hidden = jobs.length === 0;
+  panel.innerHTML = jobs.map(job => {
+    const percent = Math.max(job.progress || 0, job.status === 'uploading' ? 0 : 0);
+    const failed = job.status === 'failed' || job.status === 'timeout';
+    return '<div class="ingestion-job' + (failed ? ' failed' : '') + '">' +
+      '<div class="ingestion-job-head"><strong>' + esc(job.title || 'Document') + '</strong><span class="ingestion-job-pct">' + percent + '%</span></div>' +
+      '<div class="ingestion-job-stage">' + esc(ingestionStageText(job)) + '</div>' +
+      '<div class="ingestion-progress" role="progressbar" aria-label="Ingestion progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '"><div style="width:' + percent + '%"></div></div>' +
+      '</div>';
+  }).join('');
+}
+function restoreIngestionJobs() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(INGESTION_STORAGE_KEY) || '[]');
+    saved.forEach(job => upsertIngestionJob(job));
+  } catch (e) {}
+  renderIngestionJobs();
+  for (const job of INGESTION_JOBS.values()) _pollIngestion(job.id);
+}
+
+/* Poll independently of the selected admin view and retain jobs across reloads. */
 async function _pollIngestion(docId) {
-  const maxAttempts = 120; /* 2 min max */
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 1500));
+  if (POLLING_INGESTIONS.has(docId)) return;
+  const job = INGESTION_JOBS.get(docId);
+  if (!job) return;
+  POLLING_INGESTIONS.add(docId);
+  const started = Date.now();
+  let attempts = 0;
+  try {
+  while (Date.now() - started < INGESTION_TIMEOUT_MS) {
+    await new Promise(r => setTimeout(r, attempts < 8 ? 1000 : attempts < 40 ? 2000 : 4000));
+    attempts++;
+    let s;
     try {
-      const s = await api('/api/v1/documents/' + encodeURIComponent(docId) + '/status', { headers: authHeaders() });
-      if (s.status === 'indexed' || s.status === 'updated') {
-        toast('Indexé : ' + s.title + ' (' + s.chunks + ' chunks, ' + (s.elapsed_ms / 1000).toFixed(1) + 's)');
-        await loadAdminData();
-        return;
-      }
-      if (s.status === 'unchanged') {
-        toast('Déjà indexé : ' + s.title + ' (inchangé)');
-        await loadAdminData();
-        return;
-      }
-      if (s.status === 'failed') {
-        toast('Échec : ' + (s.error || 'erreur inconnue'));
-        return;
-      }
-      /* sinon : encore "processing", on continue */
+      s = await api('/api/v1/documents/' + encodeURIComponent(docId) + '/status', { headers: authHeaders() });
     } catch (e) {
-      /* statut expiré ou erreur réseau — on arrête silencieusement */
+      if (e.status === 404) {
+        job.status = 'failed'; job.error = 'The ingestion job expired before completion.';
+        persistIngestionJobs(); renderIngestionJobs(); toast(job.error, 'error'); return;
+      }
+      continue; /* erreur réseau passagère : on continue de sonder */
+    }
+    job.stage = s.stage || job.stage;
+    job.chunksDone = Number(s.chunks_done) || 0;
+    job.chunksTotal = Number(s.chunks_total) || 0;
+    job.progress = Math.max(job.progress || 0, ingestionPercent(s));
+    job.status = s.status;
+    job.error = s.error || '';
+    renderIngestionJobs();
+    if (s.status === 'indexed' || s.status === 'updated') {
+      job.status = s.status; job.progress = 100; job.stage = 'complete';
+      persistIngestionJobs(); renderIngestionJobs();
+      toast('Document successfully processed and indexed!');
+      loadAdminData().catch(() => {});
+      setTimeout(() => removeIngestionJob(docId), 8000);
+      return;
+    }
+    if (s.status === 'unchanged') {
+      job.status = 'unchanged'; job.progress = 100; job.stage = 'complete';
+      persistIngestionJobs(); renderIngestionJobs();
+      toast('Document already indexed; no changes were needed.');
+      loadAdminData().catch(() => {});
+      setTimeout(() => removeIngestionJob(docId), 8000);
+      return;
+    }
+    if (s.status === 'failed') {
+      job.status = 'failed'; job.error = s.error || 'Document processing failed.';
+      persistIngestionJobs(); renderIngestionJobs(); toast('Document processing failed: ' + job.error, 'error');
       return;
     }
   }
-  toast("L'indexation prend plus de temps que prévu. Vérifie plus tard.");
+  job.status = 'timeout'; job.error = 'Tracking timed out; processing may still continue on the server.';
+  persistIngestionJobs(); renderIngestionJobs(); toast(job.error, 'error');
+  } finally { POLLING_INGESTIONS.delete(docId); }
 }
+restoreIngestionJobs();
 
 del = function (id) {
   const d = (API.docs || []).find(x => x.id === id) || { title: id };
@@ -1109,12 +1255,31 @@ del = function (id) {
 };
 
 /* --- Rendu du tableau de bord à partir des données serveur --- */
+function addQuestionToKb(query) {
+  setView('docs');
+  setSrc('text');
+  $('dtitle').value = query.slice(0, 120);
+  $('txt').value = 'Question: ' + query + '\n\nAnswer: ';
+  $('txt').focus();
+  toast('Ajoutez une réponse vérifiée avant de soumettre le document.');
+}
+function drawRepetitiveQuestions(questions) {
+  $('repetitiveCount').textContent = questions.length;
+  $('repetitiveRows').innerHTML = questions.length ? questions.map((question, index) =>
+    '<tr><td>' + esc(question.normalized_query) + '</td><td>' + question.total_count + '</td><td>' + question.unuseful_count + '</td><td><button class="btn s sm" type="button" data-question-index="' + index + '">Ajouter à la base</button></td></tr>'
+  ).join('') : '<tr><td colspan="4" class="ds">Aucune question ne dépasse le seuil choisi.</td></tr>';
+  $('repetitiveRows').querySelectorAll('[data-question-index]').forEach(button => {
+    const question = questions[Number(button.dataset.questionIndex)];
+    button.addEventListener('click', () => addQuestionToKb(question.normalized_query));
+  });
+}
 draw = function () {
   const docs = API.docs, used = MC.used(), fbs = API.fbs;
   $('stats').innerHTML = [[docs.length, 'Documents'], [docs.reduce((a, d) => a + (d.chunks || 0), 0), 'Chunks indexés'], [used + ' / 50', 'Requêtes LLM / jour'], [fbs.length, 'Feedbacks']]
     .map(s => '<div class="card stat"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>').join('') +
     '<div class="card" style="grid-column:1/-1"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b style="color:var(--foreground);font-size:13px">Quota LLM du jour</b><span>Réinitialisation 00:00 UTC</span></div><div class="pg"><div style="width:' + (used * 2) + '%"></div></div></div>';
   drawTable(docs);
+  drawRepetitiveQuestions(API.repetitive);
   $('health').textContent = 'Statut : ok · ' + docs.length + ' documents';
   $('fb').innerHTML = fbs.length ? fbs.map(f => '<div class="row"><span class="bd ' + (f.v === 'up' ? 'ok' : 'er') + '">' + (f.v === 'up' ? 'Utile' : 'Pas utile') + '</span><span>' + esc(f.cid) + ' · ' + esc(f.at) + '</span></div>').join('') : '<p class="ds">Aucun retour pour le moment.</p>';
 };
@@ -1122,6 +1287,103 @@ draw = function () {
 /* On (re)charge les données à chaque entrée en mode admin. */
 addEventListener('hashchange', () => { if (adminOk) loadAdminData().catch(e => toast('Chargement impossible : ' + e.message)); });
 addEventListener('load', () => { if (adminOk) loadAdminData().catch(e => toast('Chargement impossible : ' + e.message)); });
+</script>
+<script>
+/* ===== Discord OAuth2 : bouton de connexion, callback, session JWT =====
+   La page est servie par le même serveur FastAPI que l'API. En configuration
+   standard l'origine vaut donc http://localhost:8000, et les URL appelées sont
+   http://localhost:8000/api/v1/auth/discord/login
+   http://localhost:8000/api/v1/auth/discord/callback?code=...
+   (repli explicite si la page est ouverte hors http/https, ex. file://). */
+const DISCORD_ORIGIN = (location.protocol === 'http:' || location.protocol === 'https:')
+  ? location.origin : 'http://localhost:8000';
+const DISCORD_LOGIN_URL = DISCORD_ORIGIN + '/api/v1/auth/discord/login';
+const DISCORD_CALLBACK_URL = DISCORD_ORIGIN + '/api/v1/auth/discord/callback';
+const JWT_KEY = 'jwt_token';
+
+function jwtGet() { try { return localStorage.getItem(JWT_KEY); } catch (e) { return null; } }
+function jwtSet(t) { try { localStorage.setItem(JWT_KEY, t); } catch (e) {} }
+function jwtClear() { try { localStorage.removeItem(JWT_KEY); } catch (e) {} }
+
+/* Décode la charge utile du JWT (base64url) sans vérifier la signature :
+   l'usage est purement cosmétique côté client, le serveur reste l'autorité. */
+function jwtPayload() {
+  const t = jwtGet(); if (!t) return null;
+  const part = t.split('.')[1]; if (!part) return null;
+  try {
+    let s = part.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) { return null; }
+}
+
+function discordSignIn() { window.location.href = DISCORD_LOGIN_URL; }
+
+function discordSignOut() {
+  jwtClear();
+  renderAccount();
+  toast('Déconnecté de Discord.');
+}
+
+function accountError(msg) {
+  const box = $('discordError'); if (!box) return;
+  box.textContent = msg || '';
+  box.hidden = !msg;
+}
+
+/* Rend l'état authentifié ou déconnecté à partir du JWT stocké. */
+function renderAccount() {
+  const out = $('discordSignedOut'), inn = $('discordSignedIn');
+  if (!out || !inn) return;
+  const p = jwtPayload();
+  const signedIn = !!(p && (!p.exp || p.exp * 1000 > Date.now()));
+  out.hidden = signedIn;
+  inn.hidden = !signedIn;
+  if (signedIn) {
+    $('duName').textContent = p.username || p.sub || 'Membre';
+    const badge = $('duBadge');
+    if (p.is_member) { badge.textContent = '🟢 Verified MicroClub Member'; badge.className = 'bd ok'; }
+    else { badge.textContent = '🔴 Not a Member'; badge.className = 'bd er'; }
+    accountError('');
+  }
+}
+
+/* Échange le ?code= de l'URL contre un JWT, puis nettoie l'URL sans recharger. */
+async function handleDiscordCallback() {
+  let code = null;
+  try { code = new URLSearchParams(location.search).get('code'); } catch (e) {}
+  if (!code) { renderAccount(); return; }
+
+  if (location.hash !== '#/account') location.hash = '#/account';
+  else setView('account');
+
+  window.history.replaceState({}, document.title, location.pathname + location.hash);
+
+  accountError('');
+  $('discordSignedOut').hidden = true;
+  $('discordSignedIn').hidden = true;
+
+  try {
+    const res = await fetch(DISCORD_CALLBACK_URL + '?code=' + encodeURIComponent(code));
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      const m = (body && body.error && body.error.message) || ('Erreur ' + res.status);
+      throw new Error(m);
+    }
+    if (!body || !body.access_token) throw new Error('Réponse Discord invalide.');
+    jwtSet(body.access_token);
+    renderAccount();
+    toast('Connexion Discord réussie.');
+  } catch (e) {
+    renderAccount();
+    accountError('Échec de la connexion Discord : ' + (e.message || 'erreur inconnue') + '.');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', handleDiscordCallback);
+addEventListener('hashchange', () => { if (location.hash === '#/account') renderAccount(); });
 </script>
 </body>
 </html>

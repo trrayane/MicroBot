@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,31 @@ class HashingModel:
         return vectors
 
 
+class CountingHashingModel(HashingModel):
+    """HashingModel that records every text it is asked to embed."""
+
+    def __init__(self) -> None:
+        self.encoded: list[str] = []
+
+    def encode(
+        self,
+        sentences: Sequence[str],
+        *,
+        batch_size: int = 32,
+        normalize_embeddings: bool = True,
+        convert_to_numpy: bool = True,
+        show_progress_bar: bool = False,
+    ) -> Any:
+        self.encoded.extend(sentences)
+        return super().encode(
+            sentences,
+            batch_size=batch_size,
+            normalize_embeddings=normalize_embeddings,
+            convert_to_numpy=convert_to_numpy,
+            show_progress_bar=show_progress_bar,
+        )
+
+
 def write_markdown(path: Path, body: str) -> Path:
     """Create *path* (and its parents) containing *body*."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +100,22 @@ def service(tmp_path: Path) -> IngestionService:
     )
     embedder = LocalEmbedder(model=HashingModel(), dimension=_DIMENSION)
     return IngestionService(store=store, embedder=embedder, raw_data_dir=tmp_path)
+
+
+@pytest.fixture
+def counting_service(tmp_path: Path) -> tuple[IngestionService, CountingHashingModel]:
+    """Service whose embedder records every text it embeds."""
+    store = ChromaStore(
+        client=chromadb.EphemeralClient(),
+        collection_name=f"ingest_{uuid.uuid4().hex}",
+    )
+    model = CountingHashingModel()
+    service = IngestionService(
+        store=store,
+        embedder=LocalEmbedder(model=model, dimension=_DIMENSION),
+        raw_data_dir=tmp_path,
+    )
+    return service, model
 
 
 def test_infer_visibility_from_folder(service: IngestionService, tmp_path: Path) -> None:
@@ -246,3 +288,110 @@ def test_parse_document_rejects_unknown_extension(tmp_path: Path) -> None:
 
 def test_supported_extensions_cover_expected_formats() -> None:
     assert {".md", ".markdown", ".pdf", ".docx", ".html", ".htm"} <= SUPPORTED_EXTENSIONS
+
+
+def test_update_reembeds_only_the_changed_chunks(
+    counting_service: tuple[IngestionService, CountingHashingModel], tmp_path: Path
+) -> None:
+    """Appending to a document must not re-embed its untouched chunks."""
+    service, model = counting_service
+    body = "# Guide\n\n" + "".join(f"Sentence number {i}. " for i in range(200))
+    target = write_markdown(tmp_path / "public" / "guide.md", body)
+
+    first = service.ingest_file(target)
+
+    assert first.status is IngestionStatus.INDEXED
+    assert first.chunks >= 4
+    assert len(model.encoded) == first.chunks
+
+    # Append a closing paragraph: the earlier chunk spans keep their ids, so
+    # their stored vectors can be reused instead of recomputed.
+    write_markdown(target, body + "\n\nA closing paragraph that did not exist before.")
+    model.encoded.clear()
+
+    second = service.ingest_file(target)
+
+    assert second.status is IngestionStatus.UPDATED
+    assert second.doc_id == first.doc_id
+    reembedded = len(model.encoded)
+    assert 0 < reembedded < first.chunks
+    # No stale chunks are left behind by the update.
+    assert service.store.count() == second.chunks
+
+
+def test_force_reembeds_every_chunk(
+    counting_service: tuple[IngestionService, CountingHashingModel], tmp_path: Path
+) -> None:
+    service, model = counting_service
+    target = write_markdown(tmp_path / "public" / "a.md", "# A\n\n" + "Sentence. " * 200)
+
+    first = service.ingest_file(target)
+    assert first.status is IngestionStatus.INDEXED
+    model.encoded.clear()
+
+    forced = service.ingest_file(target, force=True)
+
+    assert forced.status is IngestionStatus.UPDATED
+    assert len(model.encoded) == forced.chunks == first.chunks
+
+
+def test_ingest_reports_progress_stages(service: IngestionService, tmp_path: Path) -> None:
+    target = write_markdown(tmp_path / "public" / "a.md", "# A\n\n" + "Sentence. " * 200)
+    events: list[tuple[str, int, int]] = []
+
+    result = service.ingest_file(target, progress=lambda s, d, t: events.append((s, d, t)))
+
+    assert result.status is IngestionStatus.INDEXED
+    stages = [stage for stage, _, _ in events]
+    assert stages[0] == "parsing"
+    assert stages.index("chunking") < stages.index("embedding") < stages.index("indexing")
+
+    embedding = [event for event in events if event[0] == "embedding"]
+    assert embedding[0][1] == 0
+    assert embedding[0][2] == result.chunks
+    assert embedding[-1][1] == embedding[-1][2] == result.chunks
+
+
+def test_a_failing_progress_hook_does_not_break_ingestion(
+    service: IngestionService, tmp_path: Path
+) -> None:
+    target = write_markdown(tmp_path / "public" / "a.md", "# A\n\nBody text.")
+
+    def boom(stage: str, done: int, total: int) -> None:
+        raise RuntimeError("progress hook exploded")
+
+    result = service.ingest_file(target, progress=boom)
+
+    assert result.status is IngestionStatus.INDEXED
+
+
+def test_concurrent_ingestions_are_serialized(
+    counting_service: tuple[IngestionService, CountingHashingModel], tmp_path: Path
+) -> None:
+    """Two jobs must not embed at the same time (CPU-bound work is serialized)."""
+    service, _model = counting_service
+    write_markdown(tmp_path / "public" / "a.md", "# A\n\n" + "Alpha sentence. " * 100)
+    write_markdown(tmp_path / "public" / "b.md", "# B\n\n" + "Beta sentence. " * 100)
+
+    overlap = {"concurrent": 0, "active": 0}
+    original = service.embedder.embed_documents
+
+    def tracked(texts: Sequence[str]) -> list[list[float]]:
+        overlap["active"] += 1
+        overlap["concurrent"] = max(overlap["concurrent"], overlap["active"])
+        try:
+            return original(texts)
+        finally:
+            overlap["active"] -= 1
+
+    service.embedder.embed_documents = tracked  # type: ignore[method-assign]
+
+    paths = sorted((tmp_path / "public").glob("*.md"))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(service.ingest_file, paths))
+
+    assert [result.status for result in results] == [
+        IngestionStatus.INDEXED,
+        IngestionStatus.INDEXED,
+    ]
+    assert overlap["concurrent"] == 1

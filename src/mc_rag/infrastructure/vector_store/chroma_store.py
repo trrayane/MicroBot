@@ -301,6 +301,36 @@ class ChromaStore:
             return None
         return dict(metadatas[0])
 
+    def get_chunk_embeddings(self, chunk_ids: Sequence[str]) -> dict[str, list[float]]:
+        """Return the stored embeddings for *chunk_ids* as ``{chunk_id: vector}``.
+
+        Used by the ingestion pipeline to re-embed only the chunks whose text
+        actually changed: chunk ids are content-addressed, so an edited document
+        keeps most of its ids (and therefore its vectors) untouched. Ids that are
+        not stored are simply absent from the returned mapping.
+        """
+        ids = [str(chunk_id) for chunk_id in chunk_ids]
+        if not ids:
+            return {}
+        try:
+            result = self._resolve_collection().get(ids=ids, include=["embeddings"])
+        except Exception as exc:  # noqa: BLE001 - normalize third-party errors
+            raise VectorStoreError(
+                f"Failed to read embeddings for {len(ids)} chunks: {exc}"
+            ) from exc
+
+        stored_ids = [str(chunk_id) for chunk_id in (result.get("ids") or [])]
+        vectors = result.get("embeddings")
+        if vectors is None:
+            return {}
+
+        mapping: dict[str, list[float]] = {}
+        for row_id, vector in zip(stored_ids, vectors, strict=False):
+            if vector is None:
+                continue
+            mapping[row_id] = [float(value) for value in vector]
+        return mapping
+
     def delete_document(self, doc_id: str) -> int:
         """Delete every chunk belonging to *doc_id*; returns rows removed."""
         ids = self._chunk_ids_for(doc_id)

@@ -394,7 +394,14 @@ def _hit(chunk_id: str, score: float) -> SearchResult:
 
 def _retriever(hits, min_score=0.3):
     store = FakeStore(hits)
-    return Retriever(store=store, embedder=object(), top_k=5, min_score=min_score), store
+    return Retriever(
+        store=store,
+        embedder=object(),
+        top_k=5,
+        min_score=min_score,
+        hybrid_enabled=False,
+        rerank_enabled=False,
+    ), store
 
 
 def test_non_member_only_searches_public():
@@ -619,6 +626,8 @@ def indexed(service: IngestionService, corpus: Path) -> IngestionService:
 
 
 def retriever(store: ChromaStore, **kwargs) -> Retriever:
+    kwargs.setdefault("hybrid_enabled", False)
+    kwargs.setdefault("rerank_enabled", False)
     return Retriever(store=store, embedder=HashEmbedder(), **kwargs)
 
 

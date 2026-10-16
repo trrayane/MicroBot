@@ -23,6 +23,7 @@ from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index
 from mc_rag.infrastructure.llm.client import get_llm_client
 from mc_rag.infrastructure.persistence.conversation_repository import ConversationRepository
 from mc_rag.infrastructure.persistence.feedback_repository import FeedbackRepository
+from mc_rag.infrastructure.persistence.query_log_repository import QueryLogRepository
 from mc_rag.infrastructure.persistence.user_store import UserStore
 from mc_rag.infrastructure.tokens import JwtCodec
 from mc_rag.infrastructure.vector_store.chroma_store import ChromaStore
@@ -160,7 +161,11 @@ def get_chat_service() -> ChatService:
     retriever = Retriever(store=get_store(), lexical=get_lexical_index())
     pipeline = RagPipeline(retriever=retriever, llm=get_llm_client())
     conversations = ConversationService(ConversationRepository(settings.conversation_db_path))
-    return ChatService(pipeline=pipeline, conversations=conversations)
+    return ChatService(
+        pipeline=pipeline,
+        conversations=conversations,
+        query_logs=get_query_log_repository(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -172,3 +177,8 @@ def get_ingestion_service() -> IngestionService:
 @lru_cache(maxsize=1)
 def get_feedback_repository() -> FeedbackRepository:
     return FeedbackRepository(get_settings().feedback_db_path)
+
+
+@lru_cache(maxsize=1)
+def get_query_log_repository() -> QueryLogRepository:
+    return QueryLogRepository(get_settings().conversation_db_path)

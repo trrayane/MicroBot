@@ -168,11 +168,11 @@ Response:
 
 ## Retrieval modes
 
-Every advanced mode is **off by default** (legacy vector-only behaviour) and gated by its own env flag:
+Hybrid retrieval and reranking are **on by default**. Query rewriting and multi-query are off by default; each can be changed with its own environment flag:
 
 | Mode | Flag | What it does |
 | --- | --- | --- |
-| Hybrid search | `HYBRID_ENABLED=true` | BM25 (SQLite FTS5) **and** Chroma candidates fused with Reciprocal Rank Fusion, then gated by an accept rule. |
+| Hybrid search | `HYBRID_ENABLED=false` disables it | BM25 (SQLite FTS5) **and** Chroma candidates fused with Reciprocal Rank Fusion, then gated by an accept rule. |
 | Query rewriting | `QUERY_REWRITE_ENABLED=true` | When the first pass looks weak (or the question is a follow-up), one LLM call rewrites it into a standalone query. |
 | Multi-query | `MULTI_QUERY_ENABLED=true` | The same single LLM call also returns alternative phrasings; all queries are searched and fused. |
 

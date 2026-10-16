@@ -27,6 +27,7 @@ def chat(
     return ChatResponse(
         answer=result.answer,
         conversation_id=outcome.conversation_id,
+        query_log_id=outcome.query_log_id,
         grounded=result.grounded,
         sources=[
             SourceOut(doc_id=s.doc_id, title=s.title, snippet=s.snippet) for s in result.sources

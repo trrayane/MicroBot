@@ -21,6 +21,11 @@ class IngestionJob:
     status: str = "processing"  # processing | indexed | updated | unchanged | failed
     chunks: int = 0
     error: str | None = None
+    # Progress within the job so a polling client can show something useful
+    # instead of a spinner that appears frozen for minutes.
+    stage: str = "queued"  # queued | parsing | chunking | embedding | indexing
+    chunks_done: int = 0
+    chunks_total: int = 0
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
 
@@ -46,6 +51,25 @@ class IngestionStatusTracker:
             self._jobs[doc_id] = job
             self._evict_locked()
         return job
+
+    def progress(
+        self,
+        doc_id: str,
+        *,
+        stage: str,
+        chunks_done: int = 0,
+        chunks_total: int = 0,
+    ) -> None:
+        """Update the stage/progress of a running job (ignored once terminal)."""
+        with self._lock:
+            job = self._jobs.get(doc_id)
+            if job is None or job.finished_at is not None:
+                return
+            job.stage = stage
+            if chunks_done:
+                job.chunks_done = max(job.chunks_done, chunks_done)
+            if chunks_total:
+                job.chunks_total = max(job.chunks_total, chunks_total)
 
     def finish(
         self,

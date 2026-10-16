@@ -6,9 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from mc_rag.api.dependencies import get_feedback_repository, require_admin
+from mc_rag.api.dependencies import get_feedback_repository, get_query_log_repository, require_admin
 from mc_rag.api.schemas import FeedbackListResponse, FeedbackOut, FeedbackRequest
 from mc_rag.infrastructure.persistence.feedback_repository import FeedbackRepository
+from mc_rag.infrastructure.persistence.query_log_repository import QueryLogRepository
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
@@ -17,9 +18,15 @@ router = APIRouter(prefix="/feedback", tags=["feedback"])
 def submit_feedback(
     body: FeedbackRequest,
     repo: Annotated[FeedbackRepository, Depends(get_feedback_repository)],
+    query_logs: Annotated[QueryLogRepository, Depends(get_query_log_repository)],
 ) -> FeedbackOut:
     """Record a thumbs up/down for an answer."""
     record = repo.add(conversation_id=body.conversation_id, vote=body.vote)
+    query_logs.set_feedback(
+        body.vote,
+        query_log_id=body.query_log_id,
+        conversation_id=body.conversation_id,
+    )
     return FeedbackOut(
         feedback_id=record.feedback_id,
         conversation_id=record.conversation_id,

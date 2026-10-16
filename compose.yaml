@@ -3,10 +3,26 @@ services:
     build: .
     container_name: mc-club-rag-api
     env_file:
+      # Passes ADMIN_API_KEY, OPENROUTER_API_KEY, CHROMA_*, etc. into the app.
       - .env
     ports:
       - "8000:8000"
     volumes:
+      # SQLite DBs (storage/*.db, bm25.sqlite3, chroma/) and upload staging
+      # (data/uploads, data/raw) live here, so they survive rebuilds.
       - ./data:/app/data
       - ./storage:/app/storage
+      # Keep the downloaded embedding model across container recreation.
+      - hf-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # First boot downloads + loads the embedding model inside the lifespan,
+      # which delays the port opening by several minutes.
+      start_period: 300s
     restart: unless-stopped
+
+volumes:
+  hf-cache:

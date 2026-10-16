@@ -1,0 +1,34 @@
+# Secrets — never bake into the image (compose passes them via env_file).
+.env
+.env.*
+!.env.example
+
+# VCS / tooling caches
+.git
+.gitignore
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# Host virtualenv — the Linux image installs its own deps
+.venv
+venv
+
+# Runtime data — bind-mounted by compose.yaml anyway
+storage
+data
+
+# Python caches / build artifacts
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+build
+dist
+
+# Logs
+*.log
+*.err.log
+
+# Not needed inside the image
+journals
+.coverage

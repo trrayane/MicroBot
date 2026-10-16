@@ -149,7 +149,14 @@ def retriever(
     min_score: float = 0.0,
     top_k: int | None = None,
 ) -> Retriever:
-    return Retriever(store=store, embedder=fixed_embedder(), min_score=min_score, top_k=top_k)
+    return Retriever(
+        store=store,
+        embedder=fixed_embedder(),
+        min_score=min_score,
+        top_k=top_k,
+        hybrid_enabled=False,
+        rerank_enabled=False,
+    )
 
 
 # ==========================================================================================

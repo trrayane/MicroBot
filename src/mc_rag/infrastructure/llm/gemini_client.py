@@ -82,16 +82,33 @@ class GeminiClient:
             payload["system_instruction"] = {"parts": system_parts}
         return payload
 
-    @staticmethod
-    def _parse(response: httpx.Response) -> LLMResponse:
+    def _parse(self, response: httpx.Response) -> LLMResponse:
+        response_body = response.text
+        if self._api_key:
+            response_body = response_body.replace(self._api_key, "[REDACTED]")
         try:
             body = response.json()
         except ValueError as exc:
+            logger.warning(
+                "Gemini API error status=%d response_body=%s",
+                response.status_code,
+                response_body,
+            )
             raise LLMUnavailableError("LLM returned a non-JSON response.") from exc
         if not isinstance(body, dict):
+            logger.warning(
+                "Gemini API error status=%d response_body=%s",
+                response.status_code,
+                response_body,
+            )
             raise LLMUnavailableError("LLM returned an unexpected payload.")
 
         if response.status_code >= 400 or "error" in body:
+            logger.warning(
+                "Gemini API error status=%d response_body=%s",
+                response.status_code,
+                response_body,
+            )
             error = body.get("error")
             message = (
                 str(error.get("message", f"HTTP {response.status_code}"))
@@ -99,7 +116,7 @@ class GeminiClient:
                 else f"HTTP {response.status_code}"
             )
             if response.status_code == 429:
-                raise LLMRateLimitError("LLM rate limit or daily quota reached.")
+                raise LLMRateLimitError(f"Gemini API rate limit/quota (429): {message}")
             raise LLMUnavailableError(f"LLM request rejected ({message}).")
 
         try:

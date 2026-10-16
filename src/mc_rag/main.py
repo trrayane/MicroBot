@@ -17,27 +17,39 @@ from mc_rag.api.errors import register_error_handlers
 from mc_rag.api.router import api_router
 from mc_rag.config import get_settings
 from mc_rag.infrastructure.embeddings.local_embedder import get_embedder
+from mc_rag.infrastructure.llm.client import log_llm_configuration
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Load the embedding model once at startup so the first request is fast.
+    """Load the embedding model once at startup so the first upload is fast.
 
     The warm-up runs in a thread so uvicorn can still serve requests
-    (Discord OAuth callback, health, …) while the model loads.
+    (Discord OAuth callback, health, …) while the model loads. The model load
+    itself is guarded by a lock inside :class:`LocalEmbedder`, so an upload
+    arriving mid-warm-up reuses the same load instead of starting a second one.
     """
+
+    log_llm_configuration()
 
     def _warm_up() -> None:
         try:
-            get_embedder().embed_query("warm up")
+            get_embedder().warm_up()
             logger.info("Embedding model ready.")
         except Exception:  # noqa: BLE001 - the app can still start; requests will report it
             logger.exception("Embedding model warm-up failed.")
 
-    asyncio.get_running_loop().run_in_executor(None, _warm_up)
-    yield
+    warm_up_future = asyncio.get_running_loop().run_in_executor(None, _warm_up)
+    try:
+        yield
+    finally:
+        # Bounded best-effort wait so interpreter teardown does not race torch.
+        try:
+            await asyncio.wait_for(asyncio.shield(warm_up_future), timeout=5.0)
+        except Exception:  # noqa: BLE001 - never block shutdown
+            pass
 
 
 def create_app() -> FastAPI:

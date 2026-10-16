@@ -77,10 +77,20 @@ class OpenRouterClient:
             else:
                 status = response.status_code
                 if status == 429:
+                    body = response.text
+                    if self._api_key:
+                        body = body.replace(self._api_key, "[REDACTED]")
+                    logger.warning("OpenRouter API error status=429 response_body=%s", body)
                     raise LLMRateLimitError("LLM rate limit or daily quota reached.")
                 if status >= 500:
                     last_reason = f"provider error {status}"
                 elif status >= 400:
+                    body = response.text
+                    if self._api_key:
+                        body = body.replace(self._api_key, "[REDACTED]")
+                    logger.warning(
+                        "OpenRouter API error status=%d response_body=%s", status, body
+                    )
                     raise LLMUnavailableError(f"LLM request rejected (HTTP {status}).")
                 else:
                     return self._parse(response)

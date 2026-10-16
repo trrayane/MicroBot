@@ -32,6 +32,7 @@ class UsageOut(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     conversation_id: str
+    query_log_id: int
     grounded: bool
     sources: list[SourceOut]
     usage: UsageOut
@@ -76,9 +77,14 @@ class DocumentStatusResponse(BaseModel):
     doc_id: str
     title: str
     status: str
-    chunks: int
+    chunks: int = 0
     error: str | None = None
-    elapsed_ms: int
+    elapsed_ms: int = 0
+    # Where the job is right now (parsing | chunking | embedding | indexing)
+    # and how far along the chunk work is, so a client can show real progress.
+    stage: str = "queued"
+    chunks_done: int = 0
+    chunks_total: int = 0
 
 
 class DeleteDocumentResponse(BaseModel):
@@ -103,6 +109,7 @@ class MeResponse(BaseModel):
 
 class FeedbackRequest(BaseModel):
     conversation_id: str | None = None
+    query_log_id: int | None = None
     vote: Literal["up", "down"]
 
 
@@ -115,3 +122,13 @@ class FeedbackOut(BaseModel):
 
 class FeedbackListResponse(BaseModel):
     feedback: list[FeedbackOut]
+
+
+class RepetitiveQuestionOut(BaseModel):
+    normalized_query: str
+    total_count: int
+    unuseful_count: int
+
+
+class RepetitiveQuestionsResponse(BaseModel):
+    questions: list[RepetitiveQuestionOut]

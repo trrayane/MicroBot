@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -61,6 +62,11 @@ from mc_rag.rag.chunking import Chunk, chunk_document
 logger = logging.getLogger(__name__)
 
 Parser = Callable[[str | Path], ParsedDocument]
+
+#: ``(stage, chunks_done, chunks_total)`` progress hook. Stages are
+#: ``parsing``/``chunking`` (no chunk counts yet), ``embedding`` (updated after
+#: every embed batch, which is the slow part on CPU) and ``indexing``.
+ProgressCallback = Callable[[str, int, int], None]
 
 _HASH_BLOCK_SIZE = 1 << 16
 
@@ -195,6 +201,11 @@ class IngestionService:
         )
         self.default_visibility = default_visibility
         self._parse = parser
+        # Embedding is CPU-bound (seconds per chunk on a small machine): running
+        # two jobs at once makes each of them ~2x slower and can load the model
+        # twice. Jobs therefore run one at a time; the API still returns
+        # immediately and reports progress through the status tracker.
+        self._ingest_lock = threading.RLock()
 
     @property
     def store(self) -> ChromaStore:
@@ -320,11 +331,18 @@ class IngestionService:
         root: str | Path | None = None,
         visibility: str | None = None,
         force: bool = False,
+        progress: ProgressCallback | None = None,
     ) -> FileIngestionResult:
         """Ingest a single file and return its outcome (never raising for I/O)."""
         if visibility is not None:
             self._validate_visibility(visibility)
-        return self._ingest_file(path, self._resolve_root(root), visibility=visibility, force=force)
+        return self._ingest_file(
+            path,
+            self._resolve_root(root),
+            visibility=visibility,
+            force=force,
+            progress=progress,
+        )
 
     def ingest_parsed_document(
         self,
@@ -333,6 +351,7 @@ class IngestionService:
         doc_id: str,
         visibility: str = VISIBILITY_PUBLIC,
         force: bool = False,
+        progress: ProgressCallback | None = None,
     ) -> FileIngestionResult:
         """Chunk, embed and index an already-parsed document (no file on disk).
 
@@ -353,30 +372,35 @@ class IngestionService:
                     visibility=visibility,
                 )
 
-            chunks = chunk_document(document, visibility=visibility)
-            if not chunks:
-                if existing is not None:
-                    self.store.delete_document(doc_id)
-                    self._drop_lexical(doc_id)
+            with self._ingest_lock:
+                _report(progress, "chunking", 0, 0)
+                chunks = chunk_document(document, visibility=visibility)
+                if not chunks:
+                    if existing is not None:
+                        self.store.delete_document(doc_id)
+                        self._drop_lexical(doc_id)
+                        return FileIngestionResult(
+                            path=document.source,
+                            status=IngestionStatus.UPDATED,
+                            doc_id=doc_id,
+                            visibility=visibility,
+                        )
                     return FileIngestionResult(
                         path=document.source,
-                        status=IngestionStatus.UPDATED,
+                        status=IngestionStatus.UNCHANGED,
                         doc_id=doc_id,
                         visibility=visibility,
                     )
-                return FileIngestionResult(
-                    path=document.source,
-                    status=IngestionStatus.UNCHANGED,
-                    doc_id=doc_id,
-                    visibility=visibility,
-                )
 
-            _stamp_chunks(chunks, doc_id, content_hash)
-            embeddings = self.embedder.embed_documents([chunk.text for chunk in chunks])
-            self.store.add_chunks(chunks, embeddings)
-            if existing is not None:
-                self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
-            self._sync_lexical(chunks)
+                _stamp_chunks(chunks, doc_id, content_hash)
+                embeddings = self._embed_chunks(
+                    chunks, existing=existing, force=force, progress=progress
+                )
+                _report(progress, "indexing", len(chunks), len(chunks))
+                self.store.add_chunks(chunks, embeddings)
+                if existing is not None:
+                    self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
+                self._sync_lexical(chunks)
 
             status = IngestionStatus.UPDATED if existing is not None else IngestionStatus.INDEXED
             logger.info("Ingested %s (%d chunks, %s)", document.source, len(chunks), visibility)
@@ -412,6 +436,7 @@ class IngestionService:
         *,
         visibility: str | None,
         force: bool,
+        progress: ProgressCallback | None = None,
     ) -> FileIngestionResult:
         candidate = Path(path)
         try:
@@ -430,36 +455,42 @@ class IngestionService:
                     visibility=effective_visibility,
                 )
 
-            document = self._parse(resolved)
-            chunks = chunk_document(document, visibility=effective_visibility)
+            with self._ingest_lock:
+                _report(progress, "parsing", 0, 0)
+                document = self._parse(resolved)
+                _report(progress, "chunking", 0, 0)
+                chunks = chunk_document(document, visibility=effective_visibility)
 
-            if not chunks:
-                if existing is not None:
-                    self.store.delete_document(doc_id)
-                    self._drop_lexical(doc_id)
+                if not chunks:
+                    if existing is not None:
+                        self.store.delete_document(doc_id)
+                        self._drop_lexical(doc_id)
+                        return FileIngestionResult(
+                            path=str(resolved),
+                            status=IngestionStatus.UPDATED,
+                            doc_id=doc_id,
+                            visibility=effective_visibility,
+                        )
                     return FileIngestionResult(
                         path=str(resolved),
-                        status=IngestionStatus.UPDATED,
+                        status=IngestionStatus.UNCHANGED,
                         doc_id=doc_id,
                         visibility=effective_visibility,
                     )
-                return FileIngestionResult(
-                    path=str(resolved),
-                    status=IngestionStatus.UNCHANGED,
-                    doc_id=doc_id,
-                    visibility=effective_visibility,
+
+                _stamp_chunks(chunks, doc_id, content_hash)
+                # embed_documents adds the "passage: " prefix required by e5 models.
+                embeddings = self._embed_chunks(
+                    chunks, existing=existing, force=force, progress=progress
                 )
 
-            _stamp_chunks(chunks, doc_id, content_hash)
-            # embed_documents adds the "passage: " prefix required by e5 models.
-            embeddings = self.embedder.embed_documents([chunk.text for chunk in chunks])
-
-            # Upsert first, then drop obsolete chunks: a failure above or in the
-            # upsert leaves the previous version of the document searchable.
-            self.store.add_chunks(chunks, embeddings)
-            if existing is not None:
-                self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
-            self._sync_lexical(chunks)
+                # Upsert first, then drop obsolete chunks: a failure above or in the
+                # upsert leaves the previous version of the document searchable.
+                _report(progress, "indexing", len(chunks), len(chunks))
+                self.store.add_chunks(chunks, embeddings)
+                if existing is not None:
+                    self.store.delete_stale_chunks(doc_id, {chunk.chunk_id for chunk in chunks})
+                self._sync_lexical(chunks)
 
             status = IngestionStatus.UPDATED if existing is not None else IngestionStatus.INDEXED
             logger.info("Ingested %s (%d chunks, %s)", resolved, len(chunks), effective_visibility)
@@ -487,6 +518,61 @@ class IngestionService:
 
     def _resolve_root(self, root: str | Path | None) -> Path:
         return Path(root) if root is not None else self.raw_data_dir
+
+    def _embed_chunks(
+        self,
+        chunks: list[Chunk],
+        *,
+        existing: dict[str, Any] | None,
+        force: bool,
+        progress: ProgressCallback | None = None,
+    ) -> list[list[float]]:
+        """Embed *chunks*, reusing stored vectors for unchanged chunk ids.
+
+        Chunk ids are content-addressed, so re-ingesting an edited document
+        keeps most ids stable; their vectors are read back from the vector store
+        instead of being recomputed (embedding dominates ingestion time on CPU).
+        Reuse is skipped when ``force`` is set or when the stored document was
+        indexed with a different embedding model.
+
+        Vectors are computed batch by batch so ``progress`` reports ``embedding``
+        after every batch instead of staying silent for minutes.
+        """
+        total = len(chunks)
+        _report(progress, "embedding", 0, total)
+        if not chunks:
+            return []
+
+        cached: dict[str, list[float]] = {}
+        if existing is not None and not force:
+            if existing.get("embedding_model") == get_settings().embedding_model:
+                cached = self.store.get_chunk_embeddings([chunk.chunk_id for chunk in chunks])
+
+        missing = [chunk for chunk in chunks if chunk.chunk_id not in cached]
+        if cached:
+            logger.info(
+                "Reusing %d/%d stored embeddings (%s)",
+                len(cached),
+                total,
+                chunks[0].metadata.get("source", "unknown source"),
+            )
+
+        # ``getattr``: embedders are duck-typed (test doubles may not expose
+        # ``batch_size``); 32 matches the configured default.
+        batch_size = max(1, getattr(self.embedder, "batch_size", 32))
+        vectors: list[list[float]] = []
+        for start in range(0, len(missing), batch_size):
+            batch = missing[start : start + batch_size]
+            # embed_documents adds the "passage: " prefix required by e5 models.
+            vectors.extend(self.embedder.embed_documents([chunk.text for chunk in batch]))
+            _report(progress, "embedding", len(cached) + len(vectors), total)
+
+        merged: list[list[float]] = []
+        iterator = iter(vectors)
+        for chunk in chunks:
+            vector = cached.get(chunk.chunk_id)
+            merged.append(vector if vector is not None else next(iterator))
+        return merged
 
     @staticmethod
     def _document_id(path: Path, base: Path) -> str:
@@ -536,3 +622,13 @@ def _stamp_chunks(chunks: list[Chunk], doc_id: str, content_hash: str) -> None:
         chunk.metadata["doc_id"] = doc_id
         chunk.metadata["content_hash"] = content_hash
         chunk.metadata["embedding_model"] = model
+
+
+def _report(progress: ProgressCallback | None, stage: str, done: int, total: int) -> None:
+    """Invoke the progress hook, never letting a bad hook fail the ingestion."""
+    if progress is None:
+        return
+    try:
+        progress(stage, done, total)
+    except Exception:  # noqa: BLE001 - progress must stay best-effort
+        logger.debug("Progress callback failed", exc_info=True)

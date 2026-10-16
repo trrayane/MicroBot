@@ -13,6 +13,7 @@ right prefix is always applied.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any, Protocol, cast, runtime_checkable
@@ -69,12 +70,27 @@ class LocalEmbedder:
         )
         self._model = model
         self._dimension = dimension if isinstance(dimension, int) else None
+        # Loading SentenceTransformer takes tens of seconds and hundreds of MB.
+        # Guard the lazy load so the startup warm-up thread and the first
+        # ingestion thread cannot load the model twice concurrently.
+        self._load_lock = threading.Lock()
+
+    @property
+    def is_loaded(self) -> bool:
+        """Whether the underlying model has already been loaded."""
+        return self._model is not None
+
+    def warm_up(self) -> None:
+        """Load the model and run one tiny embedding (idempotent, thread-safe)."""
+        self.embed_query("warm up")
 
     @property
     def model(self) -> _EmbeddingModel:
         """The underlying sentence-transformers model, loaded on first access."""
         if self._model is None:
-            self._model = self._load_model()
+            with self._load_lock:
+                if self._model is None:
+                    self._model = self._load_model()
         return self._model
 
     @property
@@ -120,6 +136,23 @@ class LocalEmbedder:
             convert_to_numpy=True,
             show_progress_bar=False,
         )
+
+        # ``tolist`` is a single C-level conversion (much faster than a Python
+        # loop) when the model returned a numpy array, which SentenceTransformer
+        # always does with ``convert_to_numpy=True``.
+        tolist = getattr(vectors, "tolist", None)
+        if callable(tolist):
+            try:
+                rows = tolist()
+            except (TypeError, ValueError) as exc:
+                raise EmbeddingError(
+                    f"Unsupported embedding output from model {self.model_name!r}."
+                ) from exc
+            if rows and not isinstance(rows[0], list):
+                raise EmbeddingError(
+                    f"Model {self.model_name!r} returned a flat embedding array."
+                )
+            return rows
 
         rows: list[list[float]] = []
         for vector in vectors:

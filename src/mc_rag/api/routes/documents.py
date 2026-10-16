@@ -38,7 +38,7 @@ from mc_rag.api.schemas import (
     DocumentsResponse,
     DocumentStatusResponse,
 )
-from mc_rag.application.ingestion_service import IngestionService
+from mc_rag.application.ingestion_service import IngestionService, ProgressCallback
 from mc_rag.application.ingestion_status import IngestionStatusTracker, get_status_tracker
 from mc_rag.config import get_settings
 from mc_rag.domain.exceptions import DomainError
@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(require_admin)])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1 << 20  # stream the upload to disk one mebibyte at a time
 _FILE_SUFFIXES = {".pdf", ".docx", ".md", ".markdown", ".txt", ".xlsx", ".csv"}
 _TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -70,6 +71,15 @@ def _safe_filename(name: str) -> str:
     """Reduce a client-supplied filename to a safe basename."""
     cleaned = _UNSAFE_NAME.sub("_", Path(name).name).strip("._")
     return cleaned or "upload"
+
+
+def _progress_to(tracker: IngestionStatusTracker, doc_id: str) -> ProgressCallback:
+    """Build a progress hook feeding the status tracker of *doc_id*."""
+
+    def _report(stage: str, chunks_done: int, chunks_total: int) -> None:
+        tracker.progress(doc_id, stage=stage, chunks_done=chunks_done, chunks_total=chunks_total)
+
+    return _report
 
 
 def _check_visibility(visibility: str) -> str:
@@ -115,6 +125,9 @@ def document_status(
         chunks=job.chunks,
         error=job.error,
         elapsed_ms=job.elapsed_ms,
+        stage=job.stage,
+        chunks_done=job.chunks_done,
+        chunks_total=job.chunks_total,
     )
 
 
@@ -143,18 +156,39 @@ async def add_document(
 
     if mode == "file":
         return await _queue_file(
-            background, file, title, visibility, service, tracker,
-            settings.upload_dir, user_store, uploader_id, uploader_name,
+            background,
+            file,
+            title,
+            visibility,
+            service,
+            tracker,
+            settings.upload_dir,
+            user_store,
+            uploader_id,
+            uploader_name,
         )
     if mode == "url":
         return _queue_url(
-            background, url, visibility, service, tracker,
-            user_store, uploader_id, uploader_name,
+            background,
+            url,
+            visibility,
+            service,
+            tracker,
+            user_store,
+            uploader_id,
+            uploader_name,
         )
     if mode == "text":
         return _queue_text(
-            background, text, title, visibility, service, tracker,
-            user_store, uploader_id, uploader_name,
+            background,
+            text,
+            title,
+            visibility,
+            service,
+            tracker,
+            user_store,
+            uploader_id,
+            uploader_name,
         )
     raise HTTPException(400, f"Unknown mode {mode!r}; expected 'file', 'url' or 'text'.")
 
@@ -182,17 +216,30 @@ async def _queue_file(
     if suffix not in _FILE_SUFFIXES:
         raise HTTPException(400, "Unsupported file type (PDF, DOCX, MD, TXT, XLSX or CSV).")
 
-    data = await file.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "File too large (10 MB maximum).")
-    if not data:
-        raise HTTPException(400, "The uploaded file is empty.")
-
     upload_root = Path(upload_dir)
     target_dir = upload_root / visibility
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / _safe_filename(file.filename)
-    target.write_bytes(data)
+
+    # Stream the upload straight to disk in bounded chunks: the request never
+    # holds more than 1 MiB of the file in memory and the endpoint stays a
+    # non-blocking async read instead of buffering a whole 10 MB document.
+    size = 0
+    with target.open("wb") as handle:
+        while True:
+            block = await file.read(UPLOAD_CHUNK_BYTES)
+            if not block:
+                break
+            size += len(block)
+            if size > MAX_UPLOAD_BYTES:
+                handle.close()
+                target.unlink(missing_ok=True)
+                raise HTTPException(413, "File too large (10 MB maximum).")
+            handle.write(block)
+    if size == 0:
+        target.unlink(missing_ok=True)
+        raise HTTPException(400, "The uploaded file is empty.")
+
     doc_title = (title or "").strip() or target.stem
     doc_id = service.stable_doc_id(f"upload:{visibility}/{target.name}")
 
@@ -210,7 +257,6 @@ async def _queue_file(
         path=target,
         root=upload_root,
         is_text=suffix in _TEXT_SUFFIXES,
-        raw_text=data.decode("utf-8", "replace") if suffix in _TEXT_SUFFIXES else None,
         fmt="text" if suffix == ".txt" else ("markdown" if suffix in _TEXT_SUFFIXES else None),
     )
     return AddDocumentResponse(
@@ -267,10 +313,13 @@ def _run_url_ingestion(
             document = parse_google_sheets(url)
         else:
             document = parse_web(url, allow_local_files=False)
-        result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
-        tracker.finish(
-            doc_id, status=str(result.status), chunks=result.chunks, error=result.error
+        result = service.ingest_parsed_document(
+            document,
+            doc_id=doc_id,
+            visibility=visibility,
+            progress=_progress_to(tracker, doc_id),
         )
+        tracker.finish(doc_id, status=str(result.status), chunks=result.chunks, error=result.error)
     except Exception as exc:
         logger.exception("Background URL ingestion failed for %s", url)
         tracker.finish(doc_id, status="failed", error=str(exc))
@@ -331,10 +380,13 @@ def _run_text_ingestion(
             title=doc_title,
             metadata={"visibility": visibility},
         )
-        result = service.ingest_parsed_document(document, doc_id=doc_id, visibility=visibility)
-        tracker.finish(
-            doc_id, status=str(result.status), chunks=result.chunks, error=result.error
+        result = service.ingest_parsed_document(
+            document,
+            doc_id=doc_id,
+            visibility=visibility,
+            progress=_progress_to(tracker, doc_id),
         )
+        tracker.finish(doc_id, status=str(result.status), chunks=result.chunks, error=result.error)
     except Exception as exc:
         logger.exception("Background text ingestion failed for %s", doc_title)
         tracker.finish(doc_id, status="failed", error=str(exc))
@@ -355,12 +407,19 @@ def _run_ingestion(
     path: Path,
     root: Path,
     is_text: bool,
-    raw_text: str | None,
     fmt: str | None,
 ) -> None:
-    """Background task: parse, chunk, embed and index a saved file."""
+    """Background task: parse, chunk, embed and index a saved file.
+
+    Runs off the event loop (Starlette executes sync background tasks in its
+    thread pool), so the HTTP request has already returned ``202 Accepted``
+    before any of this starts. Progress is pushed to the status tracker so the
+    client polling ``/documents/{id}/status`` sees each stage move.
+    """
     try:
-        if is_text and raw_text is not None:
+        progress = _progress_to(tracker, doc_id)
+        if is_text:
+            raw_text = path.read_text(encoding="utf-8", errors="replace")
             document = ParsedDocument(
                 text=raw_text,
                 source=str(path),
@@ -369,13 +428,11 @@ def _run_ingestion(
                 metadata={"visibility": visibility},
             )
             result = service.ingest_parsed_document(
-                document, doc_id=doc_id, visibility=visibility
+                document, doc_id=doc_id, visibility=visibility, progress=progress
             )
         else:
-            result = service.ingest_file(path, root=root, visibility=visibility)
-        tracker.finish(
-            doc_id, status=str(result.status), chunks=result.chunks, error=result.error
-        )
+            result = service.ingest_file(path, root=root, visibility=visibility, progress=progress)
+        tracker.finish(doc_id, status=str(result.status), chunks=result.chunks, error=result.error)
     except Exception as exc:
         logger.exception("Background ingestion failed for %s", path)
         tracker.finish(doc_id, status="failed", error=str(exc))

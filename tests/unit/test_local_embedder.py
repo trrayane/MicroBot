@@ -6,6 +6,8 @@ injected so the adapter contract can be verified fast and offline.
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -140,3 +142,53 @@ def test_defaults_reflect_settings() -> None:
 def test_get_embedder_returns_cached_instance() -> None:
     assert get_embedder() is get_embedder()
     get_embedder.cache_clear()
+
+
+def test_warm_up_embeds_one_query() -> None:
+    model = FakeModel(dimension=4)
+    embedder = LocalEmbedder(model_name="fake-model", model=model, dimension=4)
+
+    embedder.warm_up()
+
+    assert model.seen == [["query: warm up"]]
+
+
+def test_is_loaded_tracks_the_lazy_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    embedder = LocalEmbedder(model_name="fake-model", dimension=4)
+    monkeypatch.setattr(embedder, "_load_model", lambda: FakeModel(dimension=4), raising=False)
+    assert embedder.is_loaded is False
+    _ = embedder.model
+    assert embedder.is_loaded is True
+
+
+def test_concurrent_first_access_loads_the_model_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The startup warm-up thread and the first ingestion thread share one load."""
+    embedder = LocalEmbedder(model_name="fake-model", dimension=4)
+    loads: list[str] = []
+    barrier = threading.Barrier(4)
+
+    def fake_load() -> FakeModel:
+        loads.append("loaded")
+        time.sleep(0.05)  # widen the race window
+        return FakeModel(dimension=4)
+
+    monkeypatch.setattr(embedder, "_load_model", fake_load, raising=False)
+
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            barrier.wait(timeout=5)
+            assert embedder.model is not None
+        except BaseException as exc:  # noqa: BLE001 - surfaced through the list
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert loads == ["loaded"]
+    assert embedder.is_loaded is True

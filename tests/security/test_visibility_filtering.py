@@ -251,6 +251,7 @@ def hybrid_retriever(store: ChromaStore, index: BM25Index) -> Retriever:
         top_k=10,
         min_score=0.0,
         hybrid_enabled=True,
+        rerank_enabled=False,
         hybrid_bm25_min_score=0.0,
     )
 
@@ -307,6 +308,7 @@ def test_vector_only_mode_matches_the_same_isolation(
         top_k=10,
         min_score=0.0,
         hybrid_enabled=False,
+        rerank_enabled=False,
     )
     result = engine.retrieve("hackathon secret", is_member=False)
 

@@ -13,7 +13,11 @@ class UserStore:
 
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path)
-        self._lock = threading.Lock()
+        # Reentrant: the write methods hold the lock and then call the
+        # ``_connection`` property, which takes the same lock to open the
+        # connection on first use. A plain ``Lock`` self-deadlocked here, which
+        # froze the very first ``POST /documents`` (or Discord login) forever.
+        self._lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
 
     @property
