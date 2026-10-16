@@ -21,6 +21,8 @@ from mc_rag.infrastructure.discord.membership_verifier import DiscordMembershipV
 from mc_rag.infrastructure.discord.oauth_client import DiscordOAuthClient
 from mc_rag.infrastructure.lexical_store.bm25_index import BM25Index
 from mc_rag.infrastructure.llm.client import get_llm_client
+from mc_rag.infrastructure.llm.gemini_client import GeminiClient
+from mc_rag.infrastructure.llm.openrouter_client import OpenRouterClient
 from mc_rag.infrastructure.persistence.conversation_repository import ConversationRepository
 from mc_rag.infrastructure.persistence.feedback_repository import FeedbackRepository
 from mc_rag.infrastructure.persistence.query_log_repository import QueryLogRepository
@@ -161,10 +163,21 @@ def get_lexical_index() -> BM25Index:
 
 
 @lru_cache(maxsize=1)
+def get_llm() -> GeminiClient | OpenRouterClient:
+    """Process-wide LLM client (one key-roulette pool for the whole app)."""
+    return get_llm_client()
+
+
+@lru_cache(maxsize=1)
 def get_chat_service() -> ChatService:
     settings = get_settings()
     retriever = Retriever(store=get_store(), lexical=get_lexical_index())
-    pipeline = RagPipeline(retriever=retriever, llm=get_llm_client())
+    pipeline = RagPipeline(
+        retriever=retriever,
+        llm=get_llm(),
+        followups_enabled=settings.followups_enabled,
+        followups_count=settings.followups_count,
+    )
     conversations = ConversationService(ConversationRepository(settings.conversation_db_path))
     return ChatService(
         pipeline=pipeline,

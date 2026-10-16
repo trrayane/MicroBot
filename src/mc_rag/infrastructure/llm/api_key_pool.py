@@ -27,6 +27,16 @@ class ApiKeyPool:
         self._cursor = 0
         self._blocked_until: dict[str, float] = {}
         self.cooldown_seconds = cooldown_seconds
+        self._stats: dict[str, dict[str, float | int | None]] = {
+            key: {
+                "calls": 0,
+                "rate_limits": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "last_used_at": None,
+            }
+            for key in self._keys
+        }
 
     def __len__(self) -> int:
         return len(self._keys)
@@ -56,6 +66,48 @@ class ApiKeyPool:
             until = time.monotonic() + duration
             if until > self._blocked_until.get(key, 0.0):
                 self._blocked_until[key] = until
+            stats = self._stats.setdefault(key, {})
+            stats["rate_limits"] = int(stats.get("rate_limits", 0)) + 1
+
+    def record_usage(self, key: str, *, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
+        """Record a successful call on *key* (call count, tokens, last use)."""
+        with self._lock:
+            stats = self._stats.setdefault(key, {})
+            stats["calls"] = int(stats.get("calls", 0)) + 1
+            stats["prompt_tokens"] = int(stats.get("prompt_tokens", 0)) + max(prompt_tokens, 0)
+            stats["completion_tokens"] = int(stats.get("completion_tokens", 0)) + max(
+                completion_tokens, 0
+            )
+            stats["last_used_at"] = time.time()
+
+    def snapshot(self) -> list[dict[str, float | int | str | None]]:
+        """Per-key status for the admin dashboard (masked keys only)."""
+        with self._lock:
+            now = time.monotonic()
+            now_wall = time.time()
+            rows: list[dict[str, float | int | str | None]] = []
+            for key in self._keys:
+                stats = self._stats.get(key, {})
+                blocked_until = self._blocked_until.get(key, 0.0)
+                cooldown_remaining = max(0.0, blocked_until - now)
+                last_used = stats.get("last_used_at")
+                rows.append(
+                    {
+                        "key": (
+                            f"{key[:4]}…{key[-4:]}" if len(key) >= 9 else "****"
+                        ),
+                        "status": "cooling" if cooldown_remaining > 0 else "available",
+                        "cooldown_remaining_s": round(cooldown_remaining, 1),
+                        "calls": int(stats.get("calls", 0)),
+                        "rate_limits": int(stats.get("rate_limits", 0)),
+                        "prompt_tokens": int(stats.get("prompt_tokens", 0)),
+                        "completion_tokens": int(stats.get("completion_tokens", 0)),
+                        "tokens": int(stats.get("prompt_tokens", 0))
+                        + int(stats.get("completion_tokens", 0)),
+                        "last_used_ago_s": round(now_wall - last_used, 1) if last_used else None,
+                    }
+                )
+            return rows
 
     def reset(self, key: str | None = None) -> None:
         """Clear the cooldown of *key*, or of every key when ``None``."""

@@ -16,6 +16,7 @@ class ConversationRecord:
 
     conversation_id: str
     is_member: bool
+    title: str | None = None
 
 
 class ConversationRepository:
@@ -39,9 +40,17 @@ class ConversationRepository:
     def get(self, conversation_id: str) -> ConversationRecord | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, is_member FROM conversations WHERE id = ?", (conversation_id,)
+                "SELECT id, is_member, title FROM conversations WHERE id = ?",
+                (conversation_id,),
             ).fetchone()
-        return ConversationRecord(row[0], bool(row[1])) if row else None
+        return ConversationRecord(row[0], bool(row[1]), row[2]) if row else None
+
+    def set_title(self, conversation_id: str, title: str) -> None:
+        """Store the auto-generated title of a conversation."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE conversations SET title = ? WHERE id = ?", (title, conversation_id)
+            )
 
     def mark_member(self, conversation_id: str) -> None:
         with self._connect() as conn:
@@ -90,3 +99,7 @@ class ConversationRepository:
                     ON messages (conversation_id, id);
                 """
             )
+            # Migration: conversations created before auto-titles have no title column.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
+            if "title" not in columns:
+                conn.execute("ALTER TABLE conversations ADD COLUMN title TEXT")

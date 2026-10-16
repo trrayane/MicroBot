@@ -187,3 +187,125 @@ def test_factory_selects_gemini_with_roulette_pool(
 
     assert isinstance(selected, GeminiClient)
     assert selected.pool.size == 2
+
+
+# --------------------------------------------------------------------------- #
+# Key pool live snapshot (admin dashboard)
+# --------------------------------------------------------------------------- #
+
+
+def test_pool_snapshot_reports_status_and_usage() -> None:
+    pool = ApiKeyPool(["AIzaSyKeyOne", "AIzaSyKeyTwo"], cooldown_seconds=60.0)
+    pool.record_usage("AIzaSyKeyOne", prompt_tokens=100, completion_tokens=20)
+    pool.penalize("AIzaSyKeyTwo", 45.0)
+
+    snapshot = pool.snapshot()
+    assert len(snapshot) == 2
+
+    one, two = snapshot
+    assert one["status"] == "available"
+    assert one["calls"] == 1
+    assert one["prompt_tokens"] == 100
+    assert one["completion_tokens"] == 20
+    assert one["tokens"] == 120
+    assert one["rate_limits"] == 0
+    assert one["last_used_ago_s"] is not None
+
+    assert two["status"] == "cooling"
+    assert two["cooldown_remaining_s"] > 0
+    assert two["rate_limits"] == 1
+    assert two["calls"] == 0
+    assert two["last_used_ago_s"] is None
+
+
+def test_penalize_counts_rate_limits() -> None:
+    pool = ApiKeyPool(["k1"], cooldown_seconds=10.0)
+    pool.penalize("k1", 5.0)
+    pool.penalize("k1", 5.0)
+    assert pool.snapshot()[0]["rate_limits"] == 2
+
+
+# --------------------------------------------------------------------------- #
+# Streaming (streamGenerateContent SSE)
+# --------------------------------------------------------------------------- #
+
+
+def _sse_body(*frames: dict) -> str:
+    return "".join(f"data: {__import__('json').dumps(frame)}\n\n" for frame in frames)
+
+
+def _stream_response(*frames: dict, status: int = 200) -> httpx.Response:
+    return httpx.Response(
+        status,
+        content=_sse_body(*frames).encode(),
+        headers={"content-type": "text/event-stream"},
+        request=httpx.Request("POST", "https://generativelanguage.googleapis.com/test"),
+    )
+
+
+def _delta_frame(text: str) -> dict:
+    return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+
+
+def _usage_frame(text: str, prompt: int, completion: int) -> dict:
+    return {
+        "candidates": [{"content": {"parts": [{"text": text}]}}],
+        "usageMetadata": {"promptTokenCount": prompt, "candidatesTokenCount": completion},
+    }
+
+
+def test_stream_yields_deltas_then_final_usage() -> None:
+    response = _stream_response(
+        _delta_frame("Bon"),
+        _delta_frame("jour"),
+        _usage_frame("!", 42, 7),
+    )
+    client = GeminiClient(
+        api_key="AIzaSyStreamKey",
+        model="test-model",
+        transport=httpx.MockTransport(lambda request: response),
+    )
+
+    chunks = list(client.stream([{"role": "user", "content": "salut"}]))
+
+    text = "".join(c.text for c in chunks if not c.final)
+    assert text == "Bonjour!"
+    final = chunks[-1]
+    assert final.final is True
+    assert (final.prompt_tokens, final.completion_tokens) == (42, 7)
+    # Usage was recorded on the pool.
+    stats = client.pool.snapshot()[0]
+    assert stats["calls"] == 1
+    assert stats["tokens"] == 49
+
+
+def test_stream_429_rotates_to_next_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    quota = _quota_response()
+    ok = _stream_response(_usage_frame("ok", 1, 1))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers["x-goog-api-key"] == "key-one":
+            return quota
+        return ok
+
+    client = GeminiClient(
+        api_keys=["key-one", "key-two"],
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+
+    chunks = list(client.stream([{"role": "user", "content": "salut"}]))
+
+    assert "".join(c.text for c in chunks if not c.final) == "ok"
+    assert client.pool.snapshot()[0]["status"] == "cooling"
+
+
+def test_stream_all_keys_cooled_raises_rate_limit() -> None:
+    client = GeminiClient(
+        api_keys=["key-one", "key-two"],
+        model="test-model",
+        transport=httpx.MockTransport(lambda request: _quota_response()),
+    )
+
+    with pytest.raises(LLMRateLimitError, match="Quota exceeded"):
+        list(client.stream([{"role": "user", "content": "salut"}]))

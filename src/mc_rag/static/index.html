@@ -67,7 +67,14 @@ button,input,select{font:inherit;color:inherit}
 .u .bub{background:var(--primary);color:var(--primary-foreground);border-bottom-right-radius:8px;font-weight:600}
 .a .bub{background:var(--card);border:2px solid var(--border);border-bottom-left-radius:8px}
 .a .bub.no{border-color:var(--warning)}
-.src{background:var(--muted);border:1px solid var(--border);border-radius:20px;padding:12px 16px;font-size:12.5px;max-width:440px}.src b{display:flex;gap:8px;align-items:center;margin-bottom:3px;font-size:13px}.src p{color:var(--muted-foreground)}
+.src{position:relative;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:13px 16px;font-size:12.5px;max-width:460px;box-shadow:var(--sh-xs);overflow:hidden;transition:border-color .2s,box-shadow .2s,transform .2s}
+.src:hover{border-color:var(--primary);box-shadow:var(--sh-sm);transform:translateY(-1px)}
+.src-h{display:flex;align-items:center;gap:8px;margin-bottom:5px;min-width:0}
+.src-ico{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:var(--pf);color:var(--primary);flex-shrink:0}
+.src-ico svg{width:14px;height:14px}
+.src-h b{font-size:13.5px;font-weight:700;color:var(--foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.src-h .bd{flex-shrink:0;height:22px;padding:0 10px;font-size:11px}
+.src p{color:var(--muted-foreground);line-height:1.55;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font:500 11.5px var(--font-mono);color:var(--muted-foreground)}
 .comp{padding:14px 32px 22px;border-top:1px solid var(--border);background:var(--muted)}
 .comp form{display:flex;gap:10px;max-width:900px}
@@ -273,8 +280,8 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
   .bub{padding:11px 15px;border-radius:20px;font-size:15.5px;line-height:1.5;overflow-wrap:anywhere}
   .u .bub{border-bottom-right-radius:6px}
   .a .bub{border-width:1px;border-bottom-left-radius:6px}
-  .src{border:1px solid var(--border);border-left:3px solid var(--accent-foreground);border-radius:6px 16px 16px 6px;padding:9px 12px;font-size:12.5px}
-  .src b{font-size:12.5px;flex-wrap:wrap}
+  .src{border-radius:6px 16px 16px 6px;padding:10px 12px 10px 14px;font-size:12.5px}
+  .src-h b{font-size:12.5px}
   .src .bd{height:20px;padding:0 8px;font-size:11px}
   .src p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .row{gap:6px 8px;font-size:11px}
@@ -363,6 +370,39 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
 .cur{display:inline-block;width:.42em;height:1.05em;margin-left:2px;background:var(--primary);opacity:.9;vertical-align:-.12em;animation:cur 1s step-end infinite}
 @keyframes cur{50%{opacity:0}}
 @media(prefers-reduced-motion:reduce){.cur{display:none}}
+.fu{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.rsn{display:flex;gap:8px;margin-top:8px;width:100%}
+.rsn .inp{flex:1;min-height:38px;border-radius:9999px}
+.krows{display:flex;flex-direction:column;padding:6px 8px}
+.krow{display:flex;align-items:center;gap:14px;padding:13px 14px;border-radius:12px;transition:background .15s}
+.krow:hover{background:var(--pf)}
+.krow:not(:last-child){border-bottom:1px solid var(--border)}
+.kdot{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--success);box-shadow:0 0 0 4px rgba(34,197,94,.16);animation:kglow 2.6s ease-in-out infinite}
+.kdot.cool{background:var(--warning);box-shadow:0 0 0 4px rgba(255,105,0,.16);animation:none}
+@keyframes kglow{50%{box-shadow:0 0 0 7px rgba(34,197,94,.05)}}
+.kid{display:flex;flex-direction:column;gap:2px;min-width:132px}
+.kid b{font-size:13.5px;color:var(--foreground)}
+.kid code{font-family:var(--font-body);font-size:12.5px;color:var(--muted-foreground);font-weight:500}
+.kstats{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.kpill{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:9999px;background:var(--pf);color:var(--primary);white-space:nowrap}
+.kpill.off{background:transparent;color:var(--muted-foreground);font-weight:500;border:1px solid var(--border)}
+.kpill.warn{background:transparent;color:var(--warning);border:1px solid var(--warning)}
+.kst{font-size:12.5px;font-weight:700;color:var(--success);white-space:nowrap}
+.kst.cool{color:var(--warning)}
+.fbrow{display:grid;grid-template-columns:36px minmax(0,1fr) 104px 132px;align-items:center;gap:14px;padding:14px;border-radius:12px;transition:background .15s}
+.fbrow:hover{background:var(--pf)}
+.fbrow:not(:last-child){border-bottom:1px solid var(--border)}
+.fbrow>.fbmeta:last-child{justify-self:end;text-align:right}
+@media(max-width:760px){.fbrow{grid-template-columns:36px minmax(0,1fr) 104px}.fbrow>.fbmeta:last-child{display:none}}
+.fbico{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;flex-shrink:0;border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground)}
+.fbico.up{color:var(--success);border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10)}
+.fbico.down{color:var(--destructive);border-color:rgba(231,0,11,.30);background:rgba(231,0,11,.07)}
+.fbmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.fbtxt{margin:0;font-size:14.5px;font-weight:600;color:var(--foreground);line-height:1.45}
+.fbtxt.none{font-weight:400;font-style:italic;color:var(--muted-foreground)}
+.fbmeta{font-size:12px;color:var(--muted-foreground)}
+.fbrow .bd{flex-shrink:0;width:104px;justify-content:center;text-align:center}
+@media(max-width:760px){.krow{flex-wrap:wrap;gap:8px}.kstats{order:3;flex-basis:100%}}
 </style>
 </head>
 <body>
@@ -398,7 +438,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
   </aside>
   <div class="main">
     <section id="pChat">
-      <header class="top"><h1>Pose ta question <span class="hl">sur MC</span></h1><a class="btn s sm tmpadmin" href="/api/v1/auth/discord/login" data-pubmode style="background:#5865F2;color:#fff;border:none;text-decoration:none;display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>Continuer avec Discord</a></header>
+      <header class="top"><h1 id="chatTitle">Pose ta question <span class="hl">sur MC</span></h1><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn s sm" type="button" id="exportBtn" hidden onclick="exportChat()" title="Exporter la conversation en Markdown"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Exporter</button><a class="btn s sm tmpadmin" href="/api/v1/auth/discord/login" data-pubmode style="background:#5865F2;color:#fff;border:none;text-decoration:none;display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>Continuer avec Discord</a></header>
       <div class="chat">
         <div class="msgs" id="msgs" aria-live="polite"></div>
         <div class="comp">
@@ -416,6 +456,10 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
     <section class="page hid" id="pDash">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1">Tableau de <span class="hl">bord</span></h1><p class="ds">Vue d'ensemble de la base de connaissances et du quota du jour.</p></div></div><span class="bd ok" id="health">Statut : ok</span></div>
       <div class="grid4" id="stats"></div>
+      <div class="dtc" id="llmCard" data-slot="llm-keys" hidden>
+        <div class="dth"><div><div class="dthr"><h3>Statut des clés API</h3><span class="dtb" id="llmKeyCount">0</span></div></div></div>
+        <div class="krows" id="llmKeys"></div>
+      </div>
       <div class="dtc" data-slot="repetitive-questions">
         <div class="dth"><div><div class="dthr"><h3>Questions récurrentes</h3><span class="dtb" id="repetitiveCount">0</span></div><p>Les sujets les plus demandés et les réponses à améliorer.</p></div></div>
         <div class="dtscroll"><table class="dt"><thead><tr><th>Question / sujet</th><th>Demandes</th><th>Non utile</th><th></th></tr></thead><tbody id="repetitiveRows"><tr><td colspan="4" class="ds">Chargement...</td></tr></tbody></table></div>
@@ -463,7 +507,7 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
     </section>
     <section class="page hid" id="pFb">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1"><span class="hl">Feedback</span> reçu</h1><p class="ds">Les retours « Utile » et « Pas utile » laissés dans le chat.</p></div></div></div>
-      <div class="card"><div id="fb" style="display:flex;flex-direction:column;gap:10px"></div></div>
+      <div class="card" style="padding:8px"><div id="fb" style="display:flex;flex-direction:column"></div></div>
     </section>
     <section class="page hid" id="pAccount">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1">Compte <span class="hl">Discord</span></h1><p class="ds">Connecte-toi avec Discord pour vérifier ton appartenance au serveur de Micro Club et débloquer les contenus réservés aux membres.</p></div></div></div>
@@ -561,7 +605,7 @@ const MC = (() => {
 })();
 
 /* Page publique : conversation, accès membre, feedback */
-let member = false, n = 0, convo = [], cid = null, curId = null;
+let member = false, n = 0, convo = [], cid = null, curId = null, curTitle = null;
 const H = { get() { try { return JSON.parse(localStorage.getItem("mc_hist") || "[]"); } catch (e) { return []; } }, set(v) { try { localStorage.setItem("mc_hist", JSON.stringify(v.slice(0, 40))); } catch (e) {} } };
 
 function add(r, h, id) {
@@ -571,7 +615,7 @@ function add(r, h, id) {
   $('msgs').appendChild(d); $('msgs').scrollTop = 1e9; updBadge(); return d;
 }
 function welcome() {
-  $('msgs').innerHTML = ''; convo = []; cid = null; curId = null; if ($('sideSearch')) $('sideSearch').value = ''; drawHist();
+  $('msgs').innerHTML = ''; convo = []; cid = null; curId = null; curTitle = null; if ($('sideSearch')) $('sideSearch').value = ''; drawHist(); setChatTitle(null);
   add('a', '<div class="bub">Bonjour, je réponds aux questions sur MC à partir des documents officiels du club, en français, en anglais ou en arabe. Choisissez une suggestion ou écrivez la vôtre.</div>');
   $('sug').innerHTML = ['Comment rejoindre MC ?', 'Quels sont les départements ?', 'Quelle est la procédure interne ?']
     .map(s => `<button class="btn s sm" type="button" onclick="ask(this.textContent)">${s}</button>`).join('');
@@ -582,10 +626,16 @@ function updBadge() {
   b.textContent = c; b.classList.toggle('hid', !c);
 }
 /* Historique des conversations (stocké dans le navigateur) */
+function setChatTitle(t) {
+  curTitle = t || null;
+  const h = $('chatTitle');
+  if (h) h.innerHTML = curTitle ? esc(curTitle) + ' <span class="hl">sur MC</span>' : 'Pose ta question <span class="hl">sur MC</span>';
+  const x = $('exportBtn'); if (x) x.hidden = !convo.length;
+}
 function saveCur() {
   if (!convo.length) return;
   if (!curId) curId = 'h_' + Date.now();
-  const list = H.get(), e = { id: curId, title: convo[0].t.slice(0, 60), html: $('msgs').innerHTML, convo, mem: member, text: convo.map(c => c.t).join(' ').toLowerCase() };
+  const list = H.get(), e = { id: curId, title: (curTitle || convo[0].t).slice(0, 60), html: $('msgs').innerHTML, convo, mem: member, text: convo.map(c => c.t).join(' ').toLowerCase() };
   const i = list.findIndex(x => x.id === curId);
   if (i >= 0) list[i] = e; else list.unshift(e);
   H.set(list); drawHist();
@@ -600,7 +650,7 @@ function drawHist() {
 function loadChat(id) {
   const e = H.get().find(x => x.id === id); if (!e) return;
   if (adminOk && view !== 'chat') setView('chat');
-  closeDrawer(); curId = id; cid = id; convo = e.convo; $('msgs').innerHTML = e.html; $('sug').innerHTML = ''; $('msgs').scrollTop = 1e9; drawHist();
+  closeDrawer(); curId = id; cid = id; convo = e.convo; $('msgs').innerHTML = e.html; $('sug').innerHTML = ''; $('msgs').scrollTop = 1e9; setChatTitle(e.title); drawHist();
 }
 function delChat(id) {
   H.set(H.get().filter(x => x.id !== id));
@@ -877,7 +927,7 @@ addEventListener('hashchange', route); document.addEventListener('DOMContentLoad
 /* ===== Câblage réel sur le backend FastAPI (/api/v1/*) =====
    La page est servie par le même serveur que l'API : chemins relatifs, pas de CORS.
    On remplace la couche démo localStorage par des appels réseau. */
-const API = { docs: [], fbs: [], repetitive: [] };
+const API = { docs: [], fbs: [], repetitive: [], llm: null };
 
 /* --- Auth: JWT (Discord) ou clé admin (X-Admin-Key) --- */
 function tokenGet() { try { return sessionStorage.getItem('mc_token') || ''; } catch (e) { return ''; } }
@@ -960,14 +1010,16 @@ MC.chunks = d => d.chunks || 0;
 async function loadAdminData() {
   const headers = authHeaders();
   await loadMe();
-  const [docs, fbs, repetitive] = await Promise.all([
+  const [docs, fbs, repetitive, llm] = await Promise.all([
     api('/api/v1/documents', { headers }),
     api('/api/v1/feedback?limit=200', { headers }),
-    api('/api/v1/admin/repetitive-questions?min_frequency=10', { headers })
+    api('/api/v1/admin/repetitive-questions?min_frequency=10', { headers }),
+    api('/api/v1/admin/llm-status', { headers }).catch(() => null)
   ]);
   API.docs = (docs.documents || []).map(mapDoc);
-  API.fbs = (fbs.feedback || []).map(f => ({ v: f.vote, cid: f.conversation_id || '—', at: new Date(f.created_at * 1000).toLocaleString('fr-FR') }));
+  API.fbs = (fbs.feedback || []).map(f => ({ v: f.vote, cid: f.conversation_id || '—', at: new Date(f.created_at * 1000).toLocaleString('fr-FR'), reason: f.reason || '' }));
   API.repetitive = repetitive.questions || [];
+  API.llm = llm;
   draw();
 }
 
@@ -1025,7 +1077,7 @@ function typeAnswer(el, raw, sourcesLen, done) {
   const tv = setInterval(tick, 14);
 }
 
-/* --- Chat : POST /api/v1/chat --- */
+/* --- Chat : POST /api/v1/chat/stream (SSE) --- */
 ask = async function (q) {
   if (MC.used() >= 50) return toast('Quota LLM du jour atteint (50/50). Réessayez après 00:00 UTC.');
   q = String(q || '').trim(); if (!q) return;
@@ -1034,29 +1086,65 @@ ask = async function (q) {
   const id = 't' + Date.now() + '_' + (++n);
   add('a', '<div class="bub" role="status" aria-label="MicroBot écrit" style="width:min(260px,70vw);display:flex;flex-direction:column;gap:8px"><div class="skel" style="height:14px"></div><div class="skel" style="height:14px;width:70%"></div></div>', id);
   $('sendBtn').disabled = true;
-  const t0 = performance.now();
   convo.push({ r: 'u', t: q }); MC.bump();
+  const L = MC.lang(q);
+  let acc = '', bub = null, donePayload = null;
+  const visOf = sid => { const x = API.docs.find(d => d.id === sid); return x ? x.vis : ''; };
+  const ensureBub = () => {
+    if (bub) return bub;
+    bub = document.createElement('div');
+    bub.className = 'bub' + (L === 'ar' ? '' : '');
+    if (L === 'ar') bub.dir = 'rtl';
+    $(id).innerHTML = ''; $(id).appendChild(bub);
+    return bub;
+  };
   try {
-    const body = await api('/api/v1/chat', {
+    const res = await fetch('/api/v1/chat/stream', {
       method: 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
       body: JSON.stringify({ message: q, conversation_id: cid })
     });
-    cid = body.conversation_id;
-    $(id).dataset.queryLogId = body.query_log_id || '';
-    const lat = Math.round(performance.now() - t0);
-    const L = MC.lang(q), sources = body.sources || [], ok = body.grounded && sources.length > 0;
-    const u = body.usage || {}, toks = (u.prompt_tokens || 0) + (u.completion_tokens || 0);
-    const visOf = sid => { const x = API.docs.find(d => d.id === sid); return x ? x.vis : ''; };
-    $(id).innerHTML = '<div class="bub ' + (ok ? '' : 'no') + '"' + (L === 'ar' ? ' dir=rtl' : '') + '></div>';
-    typeAnswer($(id).querySelector('.bub'), body.answer || MC.NO[L], sources.length, function () {
-      $(id).insertAdjacentHTML('beforeend', sources.map(s => { const v = visOf(s.doc_id); return '<div class="src"><b>' + esc(s.title) + (v ? ' <span class="bd ' + (v === 'public' ? 's' : 'l') + '">' + esc(v) + '</span>' : '') + '</b><p>' + esc((s.snippet || '').slice(0, 110)) + '…</p></div>'; }).join('') +
-        '<div class="row"><span class="bd ' + (ok ? 'ok' : 'wa') + '">' + (ok ? 'Réponse sourcée' : 'Non sourcé') + '</span><button class="btn t sm" onclick="rate(\'up\',this)">Utile</button><button class="btn t sm" onclick="rate(\'down\',this)">Pas utile</button></div>');
-      convo.push({ r: 'a', t: body.answer || '' });
-      saveCur(); $('sendBtn').disabled = false; $('msgs').scrollTop = 1e9;
-    });
+    if (!res.ok || !res.body) {
+      let msg = 'Erreur ' + res.status;
+      try { const j = await res.json(); msg = (j && j.error && j.error.message) || (j && j.detail) || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        frame.split('\n').forEach(ln => {
+          if (ln.indexOf('data:') !== 0) return;
+          let ev; try { ev = JSON.parse(ln.slice(5).trim()); } catch (e) { return; }
+          if (ev.type === 'delta') {
+            acc += ev.delta || '';
+            ensureBub().innerHTML = draftTxt(acc) + '<span class="cur"></span>';
+            $('msgs').scrollTop = 1e9;
+          } else if (ev.type === 'done') { donePayload = ev; }
+          else if (ev.type === 'error') { const err = new Error(ev.message || 'Erreur'); err.code = ev.code; throw err; }
+        });
+      }
+    }
+    if (!donePayload) throw new Error('Flux interrompu.');
+    cid = donePayload.conversation_id;
+    $(id).dataset.queryLogId = donePayload.query_log_id || '';
+    if (donePayload.title) setChatTitle(donePayload.title);
+    const sources = donePayload.sources || [], ok = donePayload.grounded && sources.length > 0;
+    API.srcCount = sources.length;
+    const fus = (donePayload.followups || []).filter(Boolean);
+    $(id).innerHTML = '<div class="bub ' + (ok ? '' : 'no') + '"' + (L === 'ar' ? ' dir=rtl' : '') + '>' + renderAnswer(donePayload.answer || MC.NO[L]) + '</div>' +
+      sources.map(s => { const v = visOf(s.doc_id); return '<div class="src"><div class="src-h"><span class="src-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg></span><b>' + esc(s.title) + '</b>' + (v ? '<span class="bd ' + (v === 'public' ? 's' : 'l') + '">' + esc(v) + '</span>' : '') + '</div><p>' + esc((s.snippet || '').slice(0, 110)) + '…</p></div>'; }).join('') +
+      (fus.length ? '<div class="fu">' + fus.map(f => '<button class="btn s sm" type="button" onclick="ask(this.textContent)">' + esc(f) + '</button>').join('') + '</div>' : '') +
+      '<div class="row"><span class="bd ' + (ok ? 'ok' : 'wa') + '">' + (ok ? 'Réponse sourcée' : 'Non sourcé') + '</span><button class="btn t sm" onclick="rate(\'up\',this)">Utile</button><button class="btn t sm" onclick="rate(\'down\',this)">Pas utile</button></div>';
+    convo.push({ r: 'a', t: donePayload.answer || '' });
+    saveCur(); $('sendBtn').disabled = false; $('msgs').scrollTop = 1e9;
   } catch (e) {
-    if (e.status === 404) {
+    if (e.code === 'conversation_not_found') {
       const ub = $('#msgs').querySelector('.m.u:last-of-type'); if (ub) ub.remove();
       $(id).remove();
       convo = []; cid = null; curId = null; saveCur();
@@ -1064,20 +1152,53 @@ ask = async function (q) {
       ask(q);
       return;
     }
-    $(id).innerHTML = '<div class="bub no">' + esc('Erreur : ' + e.message) + '</div>';
+    const msg = e.code === 'rate_limited' ? 'Limite d\'usage atteinte : réessayez plus tard.'
+      : e.code === 'llm_unavailable' ? 'Le modèle est temporairement indisponible : réessayez.'
+      : 'Erreur : ' + (e.message || 'inconnue');
+    $(id).innerHTML = '<div class="bub no">' + esc(msg) + '</div>';
     saveCur(); $('sendBtn').disabled = false; $('msgs').scrollTop = 1e9;
   }
 };
 
-/* --- Feedback : POST /api/v1/feedback --- */
+/* --- Feedback : POST /api/v1/feedback (avec raison pour « Pas utile ») --- */
 rate = async function (v, b) {
-  b.parentNode.querySelectorAll('button').forEach(x => x.disabled = true);
-  try {
-    const queryLogId = Number(b.closest('.m').dataset.queryLogId);
-    await api('/api/v1/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation_id: cid, query_log_id: queryLogId || null, vote: v }) });
-    toast('Merci pour votre retour.');
-  } catch (e) { toast('Feedback non enregistré.'); }
-  saveCur();
+  const post = async reason => {
+    try {
+      const queryLogId = Number(b.closest('.m').dataset.queryLogId);
+      await api('/api/v1/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation_id: cid, query_log_id: queryLogId || null, vote: v, reason: reason || null }) });
+      toast('Merci pour votre retour.');
+    } catch (e) { toast('Feedback non enregistré.'); }
+    saveCur();
+  };
+  const row = b.parentNode;
+  if (v === 'down') {
+    if (row.querySelector('.rsn')) return;
+    row.querySelectorAll('button').forEach(x => x.disabled = true);
+    row.insertAdjacentHTML('beforeend', '<div class="rsn"><input class="inp" maxlength="500" placeholder="Que cherchais-tu exactement ? (facultatif)" aria-label="Raison du retour négatif"><button class="btn s sm" type="button">Envoyer</button><button class="btn t sm" type="button">Annuler</button></div>');
+    const rsn = row.querySelector('.rsn');
+    const input = rsn.querySelector('input');
+    input.focus();
+    rsn.querySelectorAll('button')[0].onclick = async () => { const r = input.value.trim(); rsn.remove(); await post(r); };
+    rsn.querySelectorAll('button')[1].onclick = () => { rsn.remove(); row.querySelectorAll('button').forEach(x => x.disabled = false); };
+    return;
+  }
+  row.querySelectorAll('button').forEach(x => x.disabled = true);
+  await post(null);
+};
+
+/* --- Export Markdown de la conversation courante --- */
+exportChat = function () {
+  if (!convo.length) return toast('Rien à exporter pour le moment.');
+  const title = (curTitle || convo[0].t || 'Conversation').slice(0, 60);
+  const lines = ['# ' + title, ''];
+  convo.forEach(c => { if (c.r === 'u') lines.push('## ' + c.t, ''); else lines.push(String(c.t || '').trim(), ''); });
+  const blob = new Blob([lines.join('\n').trim() + '\n'], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = title.replace(/[^\w\s-]+/g, '').replace(/\s+/g, '-').slice(0, 60).toLowerCase() + '.md';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast('Conversation exportée en Markdown.');
 };
 
 /* --- Admin : connexion, ajout et suppression de documents --- */
@@ -1300,8 +1421,39 @@ draw = function () {
     '<div class="card" style="grid-column:1/-1"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b style="color:var(--foreground);font-size:13px">Quota LLM du jour</b><span>Réinitialisation 00:00 UTC</span></div><div class="pg"><div style="width:' + (used * 2) + '%"></div></div></div>';
   drawTable(docs);
   drawRepetitiveQuestions(API.repetitive);
+  const llmCard = $('llmCard'), llm = API.llm;
+  if (llmCard) {
+    if (llm && (llm.keys || []).length) {
+      llmCard.hidden = false;
+      $('llmKeyCount').textContent = llm.keys.length;
+      $('llmKeys').innerHTML = llm.keys.map((k, i) => {
+        const cool = k.status === 'cooling';
+        const ago = k.last_used_ago_s == null ? null : (k.last_used_ago_s < 60 ? Math.round(k.last_used_ago_s) + ' s' : Math.round(k.last_used_ago_s / 60) + ' min');
+        const stats = k.calls
+          ? '<span class="kpill">' + k.calls + ' appel' + (k.calls > 1 ? 's' : '') + '</span><span class="kpill">' + k.tokens + ' tokens</span>' + (k.rate_limits ? '<span class="kpill warn">' + k.rate_limits + ' rate-limit' + (k.rate_limits > 1 ? 's' : '') + '</span>' : '') + (ago ? '<span class="kpill off">vu ' + ago + '</span>' : '')
+          : '<span class="kpill off">Inutilisée</span>';
+        return '<div class="krow">' +
+          '<span class="kdot' + (cool ? ' cool' : '') + '" aria-hidden="true"></span>' +
+          '<div class="kid"><b>Clé ' + (i + 1) + '</b><code>' + esc(k.key) + '</code></div>' +
+          '<div class="kstats">' + stats + '</div>' +
+          '<span class="kst' + (cool ? ' cool' : '') + '">' + (cool ? 'Cooldown · ' + Math.ceil(k.cooldown_remaining_s || 0) + ' s' : 'Disponible') + '</span>' +
+        '</div>';
+      }).join('');
+    } else llmCard.hidden = true;
+  }
   $('health').textContent = 'Statut : ok · ' + docs.length + ' documents';
-  $('fb').innerHTML = fbs.length ? fbs.map(f => '<div class="row"><span class="bd ' + (f.v === 'up' ? 'ok' : 'er') + '">' + (f.v === 'up' ? 'Utile' : 'Pas utile') + '</span><span>' + esc(f.cid) + ' · ' + esc(f.at) + '</span></div>').join('') : '<p class="ds">Aucun retour pour le moment.</p>';
+  $('fb').innerHTML = fbs.length ? fbs.map(f => {
+    const up = f.v === 'up';
+    const thumb = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (up ? '' : '<g transform="rotate(180 12 12)">') + '<path d="M7 10v12M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>' + (up ? '' : '</g>') + '</svg>';
+    const conv = String(f.cid || '').replace(/^c_/, '').slice(0, 10);
+    return '<div class="fbrow">' +
+      '<span class="fbico ' + (up ? 'up' : 'down') + '">' + thumb + '</span>' +
+      '<div class="fbmain">' + (f.reason ? '<p class="fbtxt">« ' + esc(f.reason) + ' »</p>' : '<p class="fbtxt none">Pas de commentaire</p>') +
+      (conv ? '<div class="fbmeta">Conversation ' + esc(conv) + '</div>' : '') + '</div>' +
+      '<span class="bd ' + (up ? 'ok' : 'er') + '">' + (up ? 'Utile' : 'Pas utile') + '</span>' +
+      '<span class="fbmeta" style="white-space:nowrap">' + esc(f.at) + '</span>' +
+    '</div>';
+  }).join('') : '<p class="ds" style="padding:14px">Aucun retour pour le moment.</p>';
 };
 
 /* On (re)charge les données à chaque entrée en mode admin. */

@@ -20,8 +20,10 @@ def submit_feedback(
     repo: Annotated[FeedbackRepository, Depends(get_feedback_repository)],
     query_logs: Annotated[QueryLogRepository, Depends(get_query_log_repository)],
 ) -> FeedbackOut:
-    """Record a thumbs up/down for an answer."""
-    record = repo.add(conversation_id=body.conversation_id, vote=body.vote)
+    """Record a thumbs up/down for an answer (optionally with a reason)."""
+    record = repo.add(
+        conversation_id=body.conversation_id, vote=body.vote, reason=body.reason
+    )
     query_logs.set_feedback(
         body.vote,
         query_log_id=body.query_log_id,
@@ -31,6 +33,7 @@ def submit_feedback(
         feedback_id=record.feedback_id,
         conversation_id=record.conversation_id,
         vote=record.vote,
+        reason=record.reason,
         created_at=record.created_at,
     )
 
@@ -48,6 +51,7 @@ def list_feedback(
                 feedback_id=record.feedback_id,
                 conversation_id=record.conversation_id,
                 vote=record.vote,
+                reason=record.reason,
                 created_at=record.created_at,
             )
             for record in records

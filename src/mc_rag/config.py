@@ -174,6 +174,11 @@ class Settings(BaseSettings):
     multi_query_count: int = 2
     multi_query_max_chars: int = 200
 
+    # --- Chat extras (each one extra cheap LLM call per turn) --------------
+    # Suggest follow-up questions after every grounded answer.
+    followups_enabled: bool = True
+    followups_count: int = 3
+
     @field_validator(
         "openrouter_api_key",
         "openrouter_site_url",

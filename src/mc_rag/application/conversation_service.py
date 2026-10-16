@@ -27,17 +27,22 @@ class ConversationService:
 
     def open(
         self, conversation_id: str | None, *, is_member: bool
-    ) -> tuple[str, list[dict[str, str]]]:
-        """Return ``(conversation_id, recent_history)`` for this caller."""
+    ) -> tuple[str, list[dict[str, str]], str | None]:
+        """Return ``(conversation_id, recent_history, title)`` for this caller."""
         if conversation_id is None:
-            return self._repo.create(is_member=is_member), []
+            return self._repo.create(is_member=is_member), [], None
 
         record = self._repo.get(conversation_id)
         if record is None or (record.is_member and not is_member):
             raise ConversationNotFoundError("Conversation not found.")
         if is_member and not record.is_member:
             self._repo.mark_member(conversation_id)
-        return conversation_id, self._repo.recent_messages(conversation_id, self._history_messages)
+        history = self._repo.recent_messages(conversation_id, self._history_messages)
+        return conversation_id, history, record.title
 
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
         self._repo.add_messages(conversation_id, [("user", question), ("assistant", answer)])
+
+    def set_title(self, conversation_id: str, title: str) -> None:
+        """Persist the auto-generated title of a conversation."""
+        self._repo.set_title(conversation_id, title)

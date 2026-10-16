@@ -34,6 +34,8 @@ class ChatResponse(BaseModel):
     conversation_id: str
     query_log_id: int
     grounded: bool
+    title: str | None = None
+    followups: list[str] = []
     sources: list[SourceOut]
     usage: UsageOut
     latency_ms: int
@@ -111,12 +113,17 @@ class FeedbackRequest(BaseModel):
     conversation_id: str | None = None
     query_log_id: int | None = None
     vote: Literal["up", "down"]
+    reason: Annotated[
+        str | None,
+        StringConstraints(strip_whitespace=True, max_length=500),
+    ] = None
 
 
 class FeedbackOut(BaseModel):
     feedback_id: str
     conversation_id: str | None
     vote: str
+    reason: str | None = None
     created_at: float
 
 
@@ -132,3 +139,23 @@ class RepetitiveQuestionOut(BaseModel):
 
 class RepetitiveQuestionsResponse(BaseModel):
     questions: list[RepetitiveQuestionOut]
+
+
+class LlmKeyStatus(BaseModel):
+    """Live status of one Gemini API key of the roulette pool."""
+
+    key: str  # masked (e.g. "AIzaSy****")
+    status: str  # "available" | "cooling"
+    cooldown_remaining_s: float = 0.0
+    calls: int = 0
+    rate_limits: int = 0
+    tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    last_used_ago_s: float | None = None
+
+
+class LlmStatusResponse(BaseModel):
+    provider: str  # "gemini" | "openrouter" | "none"
+    model: str
+    keys: list[LlmKeyStatus] = []

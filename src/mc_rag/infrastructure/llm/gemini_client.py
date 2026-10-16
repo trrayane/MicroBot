@@ -13,16 +13,17 @@ cooling down.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 import httpx
 
 from mc_rag.domain.exceptions import LLMRateLimitError, LLMUnavailableError
 from mc_rag.infrastructure.llm.api_key_pool import ApiKeyPool
-from mc_rag.infrastructure.llm.openrouter_client import LLMResponse
+from mc_rag.infrastructure.llm.openrouter_client import LLMResponse, LLMStreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class GeminiClient:
         model: str,
         timeout: float = _DEFAULT_TIMEOUT,
         cooldown_seconds: float = _DEFAULT_COOLDOWN_SECONDS,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         keys = [key for key in (api_keys or []) if key]
         if api_key:
@@ -50,6 +52,7 @@ class GeminiClient:
         self._pool = ApiKeyPool(keys, cooldown_seconds=cooldown_seconds)
         self.model = model
         self._timeout = timeout
+        self._transport = transport
 
     @property
     def pool(self) -> ApiKeyPool:
@@ -73,7 +76,13 @@ class GeminiClient:
                 break
             try:
                 response = self._post(messages, key)
-                return self._parse(response, key)
+                result = self._parse(response, key)
+                self._pool.record_usage(
+                    key,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                )
+                return result
             except LLMRateLimitError as exc:
                 last_rate_limit = exc
                 self._pool.penalize(key, getattr(exc, "retry_delay", None))
@@ -88,12 +97,143 @@ class GeminiClient:
             raise last_rate_limit
         raise LLMRateLimitError("All Gemini API keys are rate-limited; retry later.")
 
+    def stream(self, messages: Sequence[dict[str, str]]) -> Iterator[LLMStreamChunk]:
+        """Stream the reply via ``streamGenerateContent`` (SSE).
+
+        Yields text deltas as they arrive, then a final chunk carrying the
+        token usage. The key roulette applies before the first byte: a 429
+        while opening the stream cools the key down and retries on the next.
+        Once bytes have been yielded a mid-stream failure is raised as-is
+        (the caller already received part of the answer).
+        """
+        if self._pool.size == 0:
+            raise LLMUnavailableError("LLM is not configured (missing Gemini API key).")
+
+        last_rate_limit: LLMRateLimitError | None = None
+        for _ in range(self._pool.size):
+            key = self._pool.get()
+            if key is None:
+                break
+            emitted = False
+            try:
+                for chunk in self._stream_once(messages, key):
+                    emitted = True
+                    if chunk.final:
+                        self._pool.record_usage(
+                            key,
+                            prompt_tokens=chunk.prompt_tokens,
+                            completion_tokens=chunk.completion_tokens,
+                        )
+                    yield chunk
+                return
+            except LLMRateLimitError as exc:
+                if emitted:
+                    raise
+                last_rate_limit = exc
+                self._pool.penalize(key, getattr(exc, "retry_delay", None))
+                logger.warning(
+                    "Gemini key %s hit its quota while streaming (%s) — cooled down %.0fs, "
+                    "%d key(s) left",
+                    f"{key[:6]}****" if len(key) >= 6 else "****",
+                    exc,
+                    getattr(exc, "retry_delay", None) or self._pool.cooldown_seconds,
+                    max(self._pool.available(), 0),
+                )
+        if last_rate_limit is not None:
+            raise last_rate_limit
+        raise LLMRateLimitError("All Gemini API keys are rate-limited; retry later.")
+
+    def _stream_once(
+        self, messages: Sequence[dict[str, str]], api_key: str
+    ) -> Iterator[LLMStreamChunk]:
+        """Open one SSE stream on a single key and yield its chunks."""
+        payload = self._payload(messages)
+        url = f"{_BASE_URL}/models/{self.model}:streamGenerateContent?alt=sse"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+        try:
+            with httpx.Client(timeout=self._timeout, transport=self._transport) as client:
+                with client.stream("POST", url, json=payload, headers=headers) as response:
+                    if response.status_code >= 400:
+                        body = response.read().decode("utf-8", errors="replace")
+                        body = self._redact(body, api_key)
+                        logger.warning(
+                            "Gemini API stream error status=%d response_body=%s",
+                            response.status_code,
+                            body,
+                        )
+                        error: Any = None
+                        try:
+                            parsed = json.loads(body)
+                            error = parsed.get("error") if isinstance(parsed, dict) else None
+                        except ValueError:
+                            pass
+                        message = (
+                            str(error.get("message", f"HTTP {response.status_code}"))
+                            if isinstance(error, dict)
+                            else f"HTTP {response.status_code}"
+                        )
+                        if response.status_code == 429:
+                            exc = LLMRateLimitError(f"Gemini API rate limit/quota (429): {message}")
+                            exc.retry_delay = self._retry_delay(error)
+                            raise exc
+                        raise LLMUnavailableError(f"LLM request rejected ({message}).")
+
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    for line in response.iter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data:
+                            continue
+                        try:
+                            frame = json.loads(data)
+                        except ValueError:
+                            continue
+                        if not isinstance(frame, dict):
+                            continue
+                        usage = frame.get("usageMetadata")
+                        if isinstance(usage, dict):
+                            prompt_tokens = int(usage.get("promptTokenCount") or 0)
+                            completion_tokens = int(usage.get("candidatesTokenCount") or 0)
+                        text = self._frame_text(frame)
+                        if text:
+                            yield LLMStreamChunk(text=text)
+                    yield LLMStreamChunk(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        final=True,
+                    )
+        except httpx.TimeoutException:
+            raise LLMUnavailableError("LLM unavailable (timeout).") from None
+        except httpx.TransportError:
+            raise LLMUnavailableError("LLM unavailable (network error).") from None
+
+    @staticmethod
+    def _frame_text(frame: dict[str, Any]) -> str:
+        """Extract the text delta of one SSE frame ("" when absent)."""
+        try:
+            text = frame["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError):
+            return ""
+        return text if isinstance(text, str) else ""
+
+    def _redact(self, body: str, api_key: str | None = None) -> str:
+        """Replace every known key appearing in *body* with ``[REDACTED]``."""
+        secrets = {key for key in [api_key] if key} | set(self._pool.raw_keys())
+        for secret in secrets:
+            body = body.replace(secret, "[REDACTED]")
+        return body
+
     def _post(self, messages: Sequence[dict[str, str]], api_key: str) -> httpx.Response:
         payload = self._payload(messages)
         url = f"{_BASE_URL}/models/{self.model}:generateContent"
         headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+        kwargs: dict[str, Any] = {}
+        if self._transport is not None:
+            kwargs["transport"] = self._transport
         try:
-            return httpx.post(url, json=payload, headers=headers, timeout=self._timeout)
+            return httpx.post(url, json=payload, headers=headers, timeout=self._timeout, **kwargs)
         except httpx.TimeoutException:
             raise LLMUnavailableError("LLM unavailable (timeout).") from None
         except httpx.TransportError:
@@ -153,10 +293,7 @@ class GeminiClient:
         return payload
 
     def _parse(self, response: httpx.Response, api_key: str | None = None) -> LLMResponse:
-        response_body = response.text
-        secrets = {key for key in [api_key] if key} | set(self._pool.raw_keys())
-        for secret in secrets:
-            response_body = response_body.replace(secret, "[REDACTED]")
+        response_body = self._redact(response.text, api_key)
         try:
             body = response.json()
         except ValueError as exc:

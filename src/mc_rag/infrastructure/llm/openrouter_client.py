@@ -35,6 +35,21 @@ class LLMResponse:
     completion_tokens: int = 0
 
 
+@dataclass(slots=True, frozen=True)
+class LLMStreamChunk:
+    """One delta of a streamed completion; the final chunk carries usage.
+
+    Chunks with ``final=False`` hold a text delta (possibly empty when the
+    provider emits usage-only frames). The last chunk of a stream has
+    ``final=True`` and reports the accumulated token usage.
+    """
+
+    text: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    final: bool = False
+
+
 class OpenRouterClient:
     """Minimal synchronous OpenRouter client."""
 
