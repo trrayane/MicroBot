@@ -129,7 +129,8 @@ button,input,select{font:inherit;color:inherit}
 .hwrap{flex:1;min-height:0;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .15s}
 .sidebar:is(:hover,:focus-within) .hwrap{opacity:1;pointer-events:auto;transition:opacity .25s .1s}
 .hlabel{font:600 12px var(--font-body);color:var(--muted-foreground);padding:0 10px 8px;flex-shrink:0}
-.hist{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
+.hist{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;scrollbar-width:none;-ms-overflow-style:none}
+.hist::-webkit-scrollbar{width:0;height:0;display:none}
 .hrow{display:flex;align-items:center;border-radius:10px;flex-shrink:0}.hrow:hover{background:var(--muted)}.hrow.on{background:var(--pf)}.hrow.on .hbtn{color:var(--primary)}
 .hbtn{flex:1;min-width:0;text-align:left;background:none;border:0;padding:0 10px;min-height:44px;font:500 13.5px var(--font-body);color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-radius:10px}
 .hbtn:focus-visible,.hdel:focus-visible{outline:3px solid var(--primary)}
@@ -161,7 +162,8 @@ button,input,select{font:inherit;color:inherit}
 
 /* ===== Unification chat + admin ===== */
 [hidden]{display:none!important}
-.cs .main{overflow-y:auto}
+.cs .main{overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
+.cs .main::-webkit-scrollbar{width:0;height:0;display:none}
 #pChat{display:flex;flex-direction:column;flex:1;min-height:0}
 .cs .main>.page{margin:0 auto;width:100%;max-width:1040px;padding:32px 32px 48px;flex:none}
 #pGate{max-width:460px;margin-top:14vh!important}
@@ -311,7 +313,12 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
 .dtt{display:flex;flex-direction:column;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
 .dtt .tabs{align-self:flex-start}
 .dsrch{width:100%}
-.dtscroll{position:relative;width:100%;overflow-x:auto}
+.dtscroll{position:relative;width:100%;overflow-x:auto;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted-foreground) 55%,transparent) var(--muted)}
+.dtscroll::-webkit-scrollbar{height:10px}
+.dtscroll::-webkit-scrollbar-track{background:var(--muted);border-radius:9999px}
+.dtscroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted-foreground) 55%,transparent);border-radius:9999px;border:2px solid var(--muted);transition:background-color .15s}
+.dtscroll::-webkit-scrollbar-thumb:hover{background:var(--muted-foreground)}
+.dtscroll::-webkit-scrollbar-corner{background:transparent}
 .dt{width:100%;border-collapse:collapse;font-size:14px;caption-side:bottom}
 .dt thead{background:color-mix(in srgb,var(--muted) 50%,transparent)}
 .dt th{height:44px;padding:12px 24px;text-align:left;vertical-align:middle;font-size:12px;font-weight:500;white-space:nowrap;color:var(--muted-foreground);border-bottom:1px solid var(--border)}
@@ -403,7 +410,8 @@ textarea.inp{border-radius:20px;min-height:150px;padding:14px 18px;resize:vertic
         </div>
       </div>
     </section>
-    <section class="page hid" id="pGate"><div class="card" style="display:flex;flex-direction:column;gap:14px"><div class="plogo logo-full" role="img" aria-label="Micro Club"></div><h3 style="text-align:center">Connexion bureau</h3><p class="ds">Saisissez la clé d'administration.</p>
+    <section class="page hid" id="pGate"><div class="card" style="display:flex;flex-direction:column;gap:14px"><div class="plogo logo-full" role="img" aria-label="Micro Club"></div><h3 style="text-align:center">Connexion bureau</h3><p class="ds">Saisissez la clé d'administration et votre nom — le nom servira à attribuer les documents que vous ajoutez.</p>
+      <div class="fld"><label for="dname">Votre nom</label><input class="inp" id="dname" type="text" placeholder="Ex : Rayane" autocomplete="off" maxlength="48" onkeydown="if(event.key==='Enter')unlock()"></div>
       <div class="fld"><label for="key">Clé admin</label><input class="inp" id="key" type="password" onkeydown="if(event.key==='Enter')unlock()"></div><button class="btn p" onclick="unlock()">Se connecter</button></div></section>
     <section class="page hid" id="pDash">
       <div class="ph"><div class="phl"><div><h1 class="hd ph1">Tableau de <span class="hl">bord</span></h1><p class="ds">Vue d'ensemble de la base de connaissances et du quota du jour.</p></div></div><span class="bd ok" id="health">Statut : ok</span></div>
@@ -858,7 +866,9 @@ function route() {
   member = adminOk;                       // l'admin voit aussi les documents « members »
   if (member !== prev) welcome();         // on repart d'un chat vide quand l'accès change
   if (location.hash === '#/account') { setView('account'); return; }
-  setView(mode === 'public' ? 'chat' : adminOk ? lastAdm : 'gate');
+  const v = mode === 'public' ? 'chat' : adminOk ? lastAdm : 'gate';
+  setView(v);
+  if (v === 'gate' && $('dname') && !$('dname').value) $('dname').value = displayNameGet();
   if (!ME && tokenGet()) loadMe().catch(() => {});
 }
 addEventListener('hashchange', route); document.addEventListener('DOMContentLoaded', route);
@@ -874,11 +884,18 @@ function tokenGet() { try { return sessionStorage.getItem('mc_token') || ''; } c
 function tokenSet(t) { try { t ? sessionStorage.setItem('mc_token', t) : sessionStorage.removeItem('mc_token'); } catch (e) {} }
 function adminKeyGet() { try { return sessionStorage.getItem('mc_admin_key') || ''; } catch (e) { return ''; } }
 function adminKeySet(k) { try { k ? sessionStorage.setItem('mc_admin_key', k) : sessionStorage.removeItem('mc_admin_key'); } catch (e) {} }
+function displayNameGet() { try { return sessionStorage.getItem('mc_display_name') || ''; } catch (e) { return ''; } }
+function displayNameSet(n) { try { n ? sessionStorage.setItem('mc_display_name', n) : sessionStorage.removeItem('mc_display_name'); } catch (e) {} }
 function authHeaders() {
   const t = tokenGet();
   if (t) return { 'Authorization': 'Bearer ' + t };
   const k = adminKeyGet();
-  if (k) return { 'X-Admin-Key': k };
+  if (k) {
+    const h = { 'X-Admin-Key': k };
+    const n = displayNameGet();
+    if (n) h['X-Display-Name'] = n;
+    return h;
+  }
   return {};
 }
 function discordAvatarUrl(userId, avatar, size) {
@@ -1066,14 +1083,16 @@ rate = async function (v, b) {
 /* --- Admin : connexion, ajout et suppression de documents --- */
 unlock = async function () {
   const key = $('key').value.trim();
+  const name = ($('dname').value || '').trim();
   if (!key) return toast('Saisissez la clé d\'administration.');
   try {
     await api('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
-    adminKeySet(key); try { sessionStorage.setItem('mc_admin', '1'); } catch (e) {}
+    adminKeySet(key); displayNameSet(name); try { sessionStorage.setItem('mc_admin', '1'); } catch (e) {}
     $('key').value = ''; route();
+    toast(name ? 'Bienvenue ' + name + ' — tes ajouts seront signés de ton nom.' : 'Session ouverte (nom non renseigné : attribution « Admin (API key) »).');
   } catch (e) { toast('Clé invalide (401). Réessayez.'); }
 };
-lockAdmin = function () { try { sessionStorage.removeItem('mc_admin'); sessionStorage.removeItem('mc_token'); } catch (e) {} adminKeySet(''); ME = null; updateAvatar(); route(); toast('Session déverrouillée.'); };
+lockAdmin = function () { try { sessionStorage.removeItem('mc_admin'); sessionStorage.removeItem('mc_token'); } catch (e) {} adminKeySet(''); displayNameSet(''); ME = null; updateAvatar(); route(); toast('Session déverrouillée.'); };
 
 addDoc = async function () {
   if (busy) return;

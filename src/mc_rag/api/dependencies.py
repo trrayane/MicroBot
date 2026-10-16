@@ -94,12 +94,16 @@ def get_authentication_service() -> AuthenticationService:
 def get_access(
     authorization: Annotated[str | None, Header()] = None,
     x_admin_key: Annotated[str | None, Header(alias="X-Admin-Key")] = None,
+    x_display_name: Annotated[str | None, Header(alias="X-Display-Name")] = None,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
 ) -> Access:
     """Resolve the caller's access level.
 
     Priority:
-    1. Valid ``X-Admin-Key`` → admin (full access).
+    1. Valid ``X-Admin-Key`` → admin (full access). An optional
+       ``X-Display-Name`` header is used as the admin's display name so
+       documents they add are attributed to them (attribution only —
+       it never affects authorisation).
     2. Valid ``Authorization: Bearer <JWT>`` → member or admin based on claims.
     3. Valid ``Authorization: Bearer <MEMBER_TOKEN>`` → member.
     4. No credentials → public.
@@ -107,7 +111,8 @@ def get_access(
     # 1. Admin API key (kept for backward compatibility and scripts).
     if x_admin_key is not None:
         if _admin_key_valid(x_admin_key):
-            return Access(is_member=True, is_admin=True, display_name="Admin (API key)")
+            name = (x_display_name or "").strip()[:48]
+            return Access(is_member=True, is_admin=True, display_name=name or "Admin (API key)")
         raise AuthenticationError("Invalid admin key.")
 
     # 2. Bearer token: JWT or static member token.

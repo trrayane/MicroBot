@@ -23,6 +23,7 @@ from mc_rag.application.ingestion_service import (
     IngestionService,
 )
 from mc_rag.config import get_settings
+from mc_rag.infrastructure.persistence.user_store import UserStore
 from mc_rag.infrastructure.vector_store.chroma_store import (
     ALL_VISIBILITIES,
     ChromaStore,
@@ -71,6 +72,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the folder-inferred visibility for every file.",
     )
     parser.add_argument(
+        "--owner",
+        default=None,
+        metavar="NAME",
+        help="Record NAME as the uploader of every ingested document "
+        "(shown in the admin dashboard 'Par' column).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -104,8 +112,22 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Ingestion aborted: %s", exc)
         return 2
 
+    if args.owner:
+        record_owners(report, args.owner)
+
     print_summary(report)
     return 1 if report.failed else 0
+
+
+def record_owners(report: IngestionReport, owner_name: str) -> None:
+    """Attribute every ingested document to *owner_name* (admin dashboard)."""
+    store = UserStore(get_settings().users_db_path)
+    recorded = 0
+    for result in report.results:
+        if result.doc_id:
+            store.set_document_owner(result.doc_id, "cli-script", owner_name)
+            recorded += 1
+    print(f"  Uploader recorded : {owner_name} ({recorded} document(s))")
 
 
 def print_summary(report: IngestionReport) -> None:
